@@ -121,6 +121,7 @@ export type Database = {
           led_off_hour: number | null
           led_on_hour: number | null
           mode: Database["public"]["Enums"]["relay_mode"]
+          name: string | null
           ph_pulse_sec: number | null
           ph_threshold_high: number | null
           ph_threshold_low: number | null
@@ -139,6 +140,7 @@ export type Database = {
           led_off_hour?: number | null
           led_on_hour?: number | null
           mode?: Database["public"]["Enums"]["relay_mode"]
+          name?: string | null
           ph_pulse_sec?: number | null
           ph_threshold_high?: number | null
           ph_threshold_low?: number | null
@@ -157,6 +159,7 @@ export type Database = {
           led_off_hour?: number | null
           led_on_hour?: number | null
           mode?: Database["public"]["Enums"]["relay_mode"]
+          name?: string | null
           ph_pulse_sec?: number | null
           ph_threshold_high?: number | null
           ph_threshold_low?: number | null
