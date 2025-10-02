@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { RelayControls } from "@/components/dashboard/RelayControls";
+import { TestDataButton } from "@/components/dashboard/TestDataButton";
 
 const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -85,10 +86,13 @@ const Dashboard = () => {
               <p className="text-xs text-muted-foreground">Sistema Hidropônico</p>
             </div>
           </div>
-          <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
-            <LogOut className="h-4 w-4" />
-            Sair
-          </Button>
+          <div className="flex items-center gap-2">
+            <TestDataButton />
+            <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
+              <LogOut className="h-4 w-4" />
+              Sair
+            </Button>
+          </div>
         </div>
       </header>
 

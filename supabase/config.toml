@@ -1,1 +1,7 @@
 project_id = "oaabtbvwxsjomeeizciq"
+
+[functions.mqtt-collector]
+verify_jwt = false
+
+[functions.insert-test-reading]
+verify_jwt = false
