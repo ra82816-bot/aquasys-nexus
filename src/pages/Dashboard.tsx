@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { TestDataButton } from "@/components/dashboard/TestDataButton";
+import { SensorHistoryChart } from "@/components/dashboard/SensorHistoryChart";
 
 const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -142,6 +143,42 @@ const Dashboard = () => {
               unit="°C"
               color="text-teal-600"
               bgColor="bg-teal-50"
+            />
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4 text-foreground">Histórico de Sensores</h2>
+          <div className="grid grid-cols-1 gap-4">
+            <SensorHistoryChart
+              sensorKey="ph"
+              title="pH"
+              unit=""
+              color="#2563eb"
+            />
+            <SensorHistoryChart
+              sensorKey="ec"
+              title="Condutividade Elétrica"
+              unit="µS/cm"
+              color="#ca8a04"
+            />
+            <SensorHistoryChart
+              sensorKey="air_temp"
+              title="Temperatura do Ar"
+              unit="°C"
+              color="#ea580c"
+            />
+            <SensorHistoryChart
+              sensorKey="humidity"
+              title="Umidade"
+              unit="%"
+              color="#0891b2"
+            />
+            <SensorHistoryChart
+              sensorKey="water_temp"
+              title="Temperatura da Água"
+              unit="°C"
+              color="#0d9488"
             />
           </div>
         </section>
