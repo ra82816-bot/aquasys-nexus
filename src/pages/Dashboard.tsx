@@ -3,16 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
-import { LogOut, Droplets, Thermometer, Wind, Zap, Activity } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogOut, Activity, BarChart3, Settings } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { TestDataButton } from "@/components/dashboard/TestDataButton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CannabisLeaf = () => (
   <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
-    <path d="M12 2C11.5 2 11 2.19 10.59 2.59C10.2 3 10 3.5 10 4V6.17C9.33 6.06 8.66 6 8 6C7.34 6 6.67 6.06 6 6.17V4C6 3.5 5.81 3 5.41 2.59C5 2.19 4.5 2 4 2C3.5 2 3 2.19 2.59 2.59C2.19 3 2 3.5 2 4V8C2 8.88 2.29 9.67 2.76 10.34C3.24 11 3.88 11.5 4.67 11.84C4.23 12.41 4 13.17 4 14C4 14.83 4.23 15.59 4.67 16.16C3.88 16.5 3.24 17 2.76 17.66C2.29 18.33 2 19.12 2 20V24H6C6.88 24 7.67 23.71 8.34 23.24C9 22.76 9.5 22.12 9.84 21.33C10.41 21.77 11.17 22 12 22C12.83 22 13.59 21.77 14.16 21.33C14.5 22.12 15 22.76 15.66 23.24C16.33 23.71 17.12 24 18 24H22V20C22 19.12 21.71 18.33 21.24 17.66C20.76 17 20.12 16.5 19.33 16.16C19.77 15.59 20 14.83 20 14C20 13.17 19.77 12.41 19.33 11.84C20.12 11.5 20.76 11 21.24 10.34C21.71 9.67 22 8.88 22 8V4C22 3.5 21.81 3 21.41 2.59C21 2.19 20.5 2 20 2C19.5 2 19 2.19 18.59 2.59C18.19 3 18 3.5 18 4V6.17C17.33 6.06 16.66 6 16 6C15.34 6 14.67 6.06 14 6.17V4C14 3.5 13.81 3 13.41 2.59C13 2.19 12.5 2 12 2M12 8C13.1 8 14 8.9 14 10V14C14 15.1 13.1 16 12 16C10.9 16 10 15.1 10 14V10C10 8.9 10.9 8 12 8Z"/>
+    <path d="M12 2L10.5 4.5C10 5.5 9 6.5 8 7C7 7.5 6 8 5.5 9L4 11.5C4 12 4.5 12.5 5 12.5C5.5 12.5 6 12 6 11.5L7 9.5C7.5 9 8 8.5 8.5 8C9 7.5 9.5 7.5 10 8L11 9.5C11.5 10 12 10.5 12 11.5V14C12 15 11.5 16 11 16.5L9.5 18C9 18.5 8.5 19 8.5 19.5C8.5 20 9 20.5 9.5 20.5C10 20.5 10.5 20 11 19.5L12 18V20.5C12 21 12.5 21.5 13 21.5C13.5 21.5 14 21 14 20.5V18L15 19.5C15.5 20 16 20.5 16.5 20.5C17 20.5 17.5 20 17.5 19.5C17.5 19 17 18.5 16.5 18L15 16.5C14.5 16 14 15 14 14V11.5C14 10.5 14.5 10 15 9.5L16 8C16.5 7.5 17 7.5 17.5 8C18 8.5 18.5 9 19 9.5L20 11.5C20 12 20.5 12.5 21 12.5C21.5 12.5 22 12 22 11.5L20.5 9C20 8 19 7.5 18 7C17 6.5 16 5.5 15.5 4.5L14 2H12M12 4L12.5 5C13 6 13.5 6.5 14 7L15 8L13.5 9.5C13 10 13 10.5 13 11.5V14C13 14.5 13 15 13.5 15.5L14.5 17L13 18.5V16C13 15.5 12.5 15 12 15C11.5 15 11 15.5 11 16V18.5L9.5 17L10.5 15.5C11 15 11 14.5 11 14V11.5C11 10.5 11 10 10.5 9.5L9 8L10 7C10.5 6.5 11 6 11.5 5L12 4Z"/>
   </svg>
 );
 
@@ -102,57 +102,45 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 space-y-8">
-        <section>
-          <h2 className="text-2xl font-semibold mb-4 text-foreground flex items-center gap-2">
-            <Activity className="h-6 w-6 text-primary" />
-            Monitoramento em Tempo Real
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <SensorCard
-              title="pH"
-              value={latestReading?.ph}
-              icon={<Droplets className="h-5 w-5" />}
-              unit=""
-              color="text-blue-600"
-              bgColor="bg-blue-50"
-            />
-            <SensorCard
-              title="EC"
-              value={latestReading?.ec}
-              icon={<Zap className="h-5 w-5" />}
-              unit="µS/cm"
-              color="text-yellow-600"
-              bgColor="bg-yellow-50"
-            />
-            <SensorCard
-              title="Temperatura do Ar"
-              value={latestReading?.air_temp}
-              icon={<Thermometer className="h-5 w-5" />}
-              unit="°C"
-              color="text-orange-600"
-              bgColor="bg-orange-50"
-            />
-            <SensorCard
-              title="Umidade"
-              value={latestReading?.humidity}
-              icon={<Wind className="h-5 w-5" />}
-              unit="%"
-              color="text-cyan-600"
-              bgColor="bg-cyan-50"
-            />
-            <SensorCard
-              title="Temperatura da Água"
-              value={latestReading?.water_temp}
-              icon={<Thermometer className="h-5 w-5" />}
-              unit="°C"
-              color="text-teal-600"
-              bgColor="bg-teal-50"
-            />
-          </div>
-        </section>
+      <main className="container mx-auto px-4 py-8">
+        <Tabs defaultValue="sensors" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-8">
+            <TabsTrigger value="sensors" className="gap-2">
+              <Activity className="h-4 w-4" />
+              Sensores
+            </TabsTrigger>
+            <TabsTrigger value="charts" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Gráficos
+            </TabsTrigger>
+            <TabsTrigger value="relays" className="gap-2">
+              <Settings className="h-4 w-4" />
+              Controles
+            </TabsTrigger>
+          </TabsList>
 
-        <RelayControls />
+          <TabsContent value="sensors" className="space-y-4">
+            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Activity className="h-6 w-6 text-primary" />
+              Monitoramento em Tempo Real
+            </h2>
+            <SensorCard latestReading={latestReading} />
+          </TabsContent>
+
+          <TabsContent value="charts" className="space-y-4">
+            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+              <BarChart3 className="h-6 w-6 text-primary" />
+              Histórico de Leituras
+            </h2>
+            <div className="text-center py-12 text-muted-foreground">
+              Gráficos em desenvolvimento
+            </div>
+          </TabsContent>
+
+          <TabsContent value="relays" className="space-y-4">
+            <RelayControls />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );

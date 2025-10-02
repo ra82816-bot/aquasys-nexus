@@ -45,7 +45,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
 
       toast({
         title: "Comando enviado",
-        description: `Relé ${relayIndex} - ${!isOn ? 'LIGAR' : 'DESLIGAR'}`
+        description: `Relé ${relayIndex + 1} - ${!isOn ? 'LIGAR' : 'DESLIGAR'}`
       });
     } catch (error) {
       console.error('Erro ao enviar comando:', error);
@@ -143,7 +143,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
             </div>
           ) : (
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              Relé {relayIndex}: {name}
+              Relé {relayIndex + 1}: {name}
               <Button 
                 size="sm" 
                 variant="ghost" 

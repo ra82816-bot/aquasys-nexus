@@ -29,16 +29,6 @@ export const RelayControls = () => {
   const [relayStatus, setRelayStatus] = useState<RelayStatus | null>(null);
   const { toast } = useToast();
 
-  const relayNames = [
-    'LED',
-    'Bomba',
-    'pH Up',
-    'Ventilador',
-    'Umidificador',
-    'EC/Nutrientes',
-    'CO2',
-    'Genérico'
-  ];
 
   useEffect(() => {
     fetchRelayConfigs();
@@ -131,14 +121,14 @@ export const RelayControls = () => {
   const getRelayStatus = (index: number): boolean => {
     if (!relayStatus) return false;
     const statusKeys: Record<number, keyof RelayStatus> = {
-      1: 'relay1_led',
-      2: 'relay2_pump',
-      3: 'relay3_ph_up',
-      4: 'relay4_fan',
-      5: 'relay5_humidity',
-      6: 'relay6_ec',
-      7: 'relay7_co2',
-      8: 'relay8_generic'
+      0: 'relay1_led',
+      1: 'relay2_pump',
+      2: 'relay3_ph_up',
+      3: 'relay4_fan',
+      4: 'relay5_humidity',
+      5: 'relay6_ec',
+      6: 'relay7_co2',
+      7: 'relay8_generic'
     };
     return relayStatus[statusKeys[index]] || false;
   };
@@ -157,13 +147,14 @@ export const RelayControls = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {relayConfigs.map((config, index) => (
+        {relayConfigs.map((config) => (
           <div key={config.relay_index} className="relative">
             <RelayCard
               relayIndex={config.relay_index}
-              name={relayNames[index]}
+              name={config.name || `Relé ${config.relay_index + 1}`}
               mode={config.mode}
               isOn={getRelayStatus(config.relay_index)}
+              onNameUpdate={fetchRelayConfigs}
             />
             <Button
               variant="ghost"
