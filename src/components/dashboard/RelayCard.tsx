@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Power, PowerOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Power, PowerOff, Pencil, Check, X } from "lucide-react";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -11,10 +12,13 @@ interface RelayCardProps {
   name: string;
   mode: string;
   isOn: boolean;
+  onNameUpdate?: () => void;
 }
 
-export const RelayCard = ({ relayIndex, name, mode, isOn }: RelayCardProps) => {
+export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayCardProps) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [newName, setNewName] = useState(name);
   const { toast } = useToast();
 
   const handleToggle = async () => {
@@ -55,6 +59,52 @@ export const RelayCard = ({ relayIndex, name, mode, isOn }: RelayCardProps) => {
     }
   };
 
+  const handleBadgeClick = async () => {
+    if (mode !== 'manual') {
+      toast({
+        title: "Modo incorreto",
+        description: "O relé deve estar em modo manual para controle direto",
+        variant: "destructive"
+      });
+      return;
+    }
+    await handleToggle();
+  };
+
+  const handleSaveName = async () => {
+    if (!newName.trim()) {
+      toast({
+        title: "Erro",
+        description: "O nome não pode estar vazio",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("relay_configs")
+        .update({ name: newName })
+        .eq("relay_index", relayIndex);
+
+      if (error) throw error;
+
+      toast({
+        title: "Sucesso",
+        description: "Nome do relé atualizado"
+      });
+      setIsEditingName(false);
+      onNameUpdate?.();
+    } catch (error) {
+      console.error("Erro ao atualizar nome:", error);
+      toast({
+        title: "Erro",
+        description: "Falha ao atualizar nome",
+        variant: "destructive"
+      });
+    }
+  };
+
   const getModeLabel = (mode: string) => {
     const labels: { [key: string]: string } = {
       unused: 'Não usado',
@@ -73,12 +123,41 @@ export const RelayCard = ({ relayIndex, name, mode, isOn }: RelayCardProps) => {
     <Card className="border-primary/20 hover:border-primary/40 transition-all">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">
-            Relé {relayIndex}: {name}
-          </CardTitle>
+          {isEditingName ? (
+            <div className="flex items-center gap-2 flex-1">
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="h-8"
+                autoFocus
+              />
+              <Button size="sm" variant="ghost" onClick={handleSaveName}>
+                <Check className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => {
+                setNewName(name);
+                setIsEditingName(false);
+              }}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              Relé {relayIndex}: {name}
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="h-6 w-6 p-0"
+                onClick={() => setIsEditingName(true)}
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+            </CardTitle>
+          )}
           <Badge 
             variant={isOn ? "default" : "secondary"}
-            className={isOn ? "bg-green-500" : "bg-gray-500"}
+            className={`${isOn ? "bg-green-500" : "bg-gray-500"} ${mode === 'manual' ? 'cursor-pointer hover:opacity-80' : ''}`}
+            onClick={mode === 'manual' ? handleBadgeClick : undefined}
           >
             {isOn ? "LIGADO" : "DESLIGADO"}
           </Badge>
