@@ -7,6 +7,8 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log('relay-control: Nova requisição recebida');
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -16,10 +18,14 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { relay_index, command } = await req.json();
+    const body = await req.json();
+    console.log('relay-control: Body recebido:', JSON.stringify(body));
+    
+    const { relay_index, command } = body;
 
     // Validar entrada
     if (relay_index === undefined || command === undefined) {
+      console.error('relay-control: Parâmetros inválidos', { relay_index, command });
       return new Response(
         JSON.stringify({ error: 'relay_index e command são obrigatórios' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -42,12 +48,14 @@ serve(async (req) => {
       throw error;
     }
 
-    console.log('Comando registrado:', data);
+    console.log('relay-control: Comando registrado com sucesso:', data);
 
     await supabase.from('event_logs').insert({
       type: 'relay_command',
-      message: `Comando registrado: Relé ${relay_index} - ${command ? 'LIGAR' : 'DESLIGAR'}`
+      message: `Comando registrado: Relé ${relay_index + 1} - ${command ? 'LIGAR' : 'DESLIGAR'}`
     });
+
+    console.log('relay-control: Event log criado');
 
     return new Response(
       JSON.stringify({ 

@@ -237,6 +237,8 @@ export const RelayConfigDialog = ({
             </div>
           </>
         );
+      case "manual":
+        return <p className="text-muted-foreground">Modo manual: use os botões Ligar/Desligar no card do relé.</p>;
       default:
         return <p className="text-muted-foreground">Selecione um modo para configurar.</p>;
     }
@@ -260,6 +262,7 @@ export const RelayConfigDialog = ({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="unused">Não Usado</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
                 <SelectItem value="led">Iluminação</SelectItem>
                 <SelectItem value="cycle">Ciclo</SelectItem>
                 <SelectItem value="ph_up">pH Up</SelectItem>

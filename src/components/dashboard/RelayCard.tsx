@@ -32,14 +32,17 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     }
 
     setIsLoading(true);
+    console.log('RelayCard: Enviando comando para relé', { relayIndex, command: !isOn });
 
     try {
-      const { error } = await supabase.functions.invoke('relay-control', {
+      const { data, error } = await supabase.functions.invoke('relay-control', {
         body: {
           relay_index: relayIndex,
           command: !isOn
         }
       });
+
+      console.log('RelayCard: Resposta recebida', { data, error });
 
       if (error) throw error;
 
@@ -48,7 +51,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
         description: `Relé ${relayIndex + 1} - ${!isOn ? 'LIGAR' : 'DESLIGAR'}`
       });
     } catch (error) {
-      console.error('Erro ao enviar comando:', error);
+      console.error('RelayCard: Erro ao enviar comando:', error);
       toast({
         title: "Erro",
         description: "Falha ao enviar comando",
