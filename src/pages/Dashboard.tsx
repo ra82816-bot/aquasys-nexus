@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { LogOut, Activity, BarChart3, Settings } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
+import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { TestDataButton } from "@/components/dashboard/TestDataButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -132,9 +133,7 @@ const Dashboard = () => {
               <BarChart3 className="h-6 w-6 text-primary" />
               Histórico de Leituras
             </h2>
-            <div className="text-center py-12 text-muted-foreground">
-              Gráficos em desenvolvimento
-            </div>
+            <SensorCharts />
           </TabsContent>
 
           <TabsContent value="relays" className="space-y-4">
