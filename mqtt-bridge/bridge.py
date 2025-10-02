@@ -5,10 +5,10 @@ import time
 import os
 
 # Configurações HiveMQ Cloud
-MQTT_BROKER = os.getenv("MQTT_BROKER", "seu-broker.hivemq.cloud")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
-MQTT_USERNAME = os.getenv("MQTT_USERNAME", "seu-usuario")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "sua-senha")
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "esp32-user")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "HydroSmart123")
 
 # URL do Edge Function
 EDGE_FUNCTION_URL = "https://oaabtbvwxsjomeeizciq.supabase.co/functions/v1/mqtt-collector"
