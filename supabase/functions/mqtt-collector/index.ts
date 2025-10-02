@@ -18,23 +18,23 @@ serve(async (req) => {
 
     const { action, data } = await req.json();
 
-    if (action === 'process') {
-      // Validar campos obrigatórios
+    if (action === 'process_sensors') {
+      // Validar campos obrigatórios dos sensores
       if (!data.ph || !data.ec || !data.airTemp || !data.humidity || !data.waterTemp) {
-        console.error('Dados inválidos - campos obrigatórios ausentes:', data);
+        console.error('Dados de sensores inválidos:', data);
         
         await supabase.from('event_logs').insert({
           type: 'validation_error',
-          message: `Dados inválidos recebidos: ${JSON.stringify(data)}`
+          message: `Dados de sensores inválidos: ${JSON.stringify(data)}`
         });
         
         return new Response(
-          JSON.stringify({ error: 'Dados inválidos' }),
+          JSON.stringify({ error: 'Dados de sensores inválidos' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // Inserir leitura no banco
+      // Inserir leitura de sensores
       const { error: insertError } = await supabase
         .from('readings')
         .insert({
@@ -56,7 +56,7 @@ serve(async (req) => {
         throw insertError;
       }
 
-      console.log('Leitura inserida com sucesso!');
+      console.log('Leitura de sensores inserida com sucesso!');
       
       await supabase.from('event_logs').insert({
         type: 'reading_received',
@@ -64,7 +64,61 @@ serve(async (req) => {
       });
 
       return new Response(
-        JSON.stringify({ message: 'Leitura processada com sucesso' }),
+        JSON.stringify({ message: 'Leitura de sensores processada com sucesso' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (action === 'process_relay_status') {
+      // Validar dados dos relés
+      if (!data.relay1_led === undefined || !data.relay2_pump === undefined) {
+        console.error('Dados de relés inválidos:', data);
+        
+        await supabase.from('event_logs').insert({
+          type: 'validation_error',
+          message: `Dados de relés inválidos: ${JSON.stringify(data)}`
+        });
+        
+        return new Response(
+          JSON.stringify({ error: 'Dados de relés inválidos' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Inserir status dos relés
+      const { error: insertError } = await supabase
+        .from('relay_status')
+        .insert({
+          relay1_led: data.relay1_led,
+          relay2_pump: data.relay2_pump,
+          relay3_ph_up: data.relay3_ph_up,
+          relay4_fan: data.relay4_fan,
+          relay5_humidity: data.relay5_humidity,
+          relay6_ec: data.relay6_ec,
+          relay7_co2: data.relay7_co2,
+          relay8_generic: data.relay8_generic
+        });
+
+      if (insertError) {
+        console.error('Erro ao inserir status dos relés:', insertError);
+        
+        await supabase.from('event_logs').insert({
+          type: 'database_error',
+          message: `Erro ao inserir status dos relés: ${insertError.message}`
+        });
+        
+        throw insertError;
+      }
+
+      console.log('Status dos relés inserido com sucesso!');
+      
+      await supabase.from('event_logs').insert({
+        type: 'relay_status_received',
+        message: `Status dos relés processado`
+      });
+
+      return new Response(
+        JSON.stringify({ message: 'Status dos relés processado com sucesso' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

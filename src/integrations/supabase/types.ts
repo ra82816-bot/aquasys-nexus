@@ -86,6 +86,30 @@ export type Database = {
         }
         Relationships: []
       }
+      relay_commands: {
+        Row: {
+          command: boolean
+          executed: boolean
+          id: number
+          relay_index: number
+          timestamp: string
+        }
+        Insert: {
+          command: boolean
+          executed?: boolean
+          id?: number
+          relay_index: number
+          timestamp?: string
+        }
+        Update: {
+          command?: boolean
+          executed?: boolean
+          id?: number
+          relay_index?: number
+          timestamp?: string
+        }
+        Relationships: []
+      }
       relay_configs: {
         Row: {
           cycle_off_min: number | null
@@ -140,6 +164,45 @@ export type Database = {
           temp_threshold_off?: number | null
           temp_threshold_on?: number | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      relay_status: {
+        Row: {
+          id: number
+          relay1_led: boolean
+          relay2_pump: boolean
+          relay3_ph_up: boolean
+          relay4_fan: boolean
+          relay5_humidity: boolean
+          relay6_ec: boolean
+          relay7_co2: boolean
+          relay8_generic: boolean
+          timestamp: string
+        }
+        Insert: {
+          id?: number
+          relay1_led: boolean
+          relay2_pump: boolean
+          relay3_ph_up: boolean
+          relay4_fan: boolean
+          relay5_humidity: boolean
+          relay6_ec: boolean
+          relay7_co2: boolean
+          relay8_generic: boolean
+          timestamp?: string
+        }
+        Update: {
+          id?: number
+          relay1_led?: boolean
+          relay2_pump?: boolean
+          relay3_ph_up?: boolean
+          relay4_fan?: boolean
+          relay5_humidity?: boolean
+          relay6_ec?: boolean
+          relay7_co2?: boolean
+          relay8_generic?: boolean
+          timestamp?: string
         }
         Relationships: []
       }

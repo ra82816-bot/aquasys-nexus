@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.insert-test-reading]
 verify_jwt = false
+
+[functions.relay-control]
+verify_jwt = false
+
+[functions.export-readings]
+verify_jwt = false

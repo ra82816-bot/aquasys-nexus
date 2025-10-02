@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Settings } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Settings, Download } from "lucide-react";
 import { RelayConfigDialog } from "./RelayConfigDialog";
+import { RelayCard } from "./RelayCard";
+import { useToast } from "@/hooks/use-toast";
 
 interface RelayConfig {
   relay_index: number;
@@ -12,13 +12,51 @@ interface RelayConfig {
   [key: string]: any;
 }
 
+interface RelayStatus {
+  relay1_led: boolean;
+  relay2_pump: boolean;
+  relay3_ph_up: boolean;
+  relay4_fan: boolean;
+  relay5_humidity: boolean;
+  relay6_ec: boolean;
+  relay7_co2: boolean;
+  relay8_generic: boolean;
+}
+
 export const RelayControls = () => {
   const [relayConfigs, setRelayConfigs] = useState<RelayConfig[]>([]);
   const [selectedRelay, setSelectedRelay] = useState<number | null>(null);
+  const [relayStatus, setRelayStatus] = useState<RelayStatus | null>(null);
   const { toast } = useToast();
+
+  const relayNames = [
+    'LED',
+    'Bomba',
+    'pH Up',
+    'Ventilador',
+    'Umidificador',
+    'EC/Nutrientes',
+    'CO2',
+    'Genérico'
+  ];
 
   useEffect(() => {
     fetchRelayConfigs();
+    fetchLatestRelayStatus();
+
+    // Subscrever ao status em tempo real
+    const channel = supabase
+      .channel('relay-status-changes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'relay_status' },
+        (payload) => setRelayStatus(payload.new as RelayStatus)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchRelayConfigs = async () => {
@@ -28,55 +66,114 @@ export const RelayControls = () => {
       .order("relay_index");
 
     if (error) {
-      toast({
-        title: "Erro ao carregar configurações",
-        description: error.message,
-        variant: "destructive"
-      });
+      console.error("Erro ao buscar configurações dos relés:", error);
       return;
     }
 
     setRelayConfigs(data || []);
   };
 
-  const getModeLabel = (mode: string) => {
-    const modes: Record<string, string> = {
-      unused: "Não Usado",
-      led: "Iluminação",
-      cycle: "Ciclo",
-      ph_up: "pH Up",
-      ph_down: "pH Down",
-      temperature: "Temperatura",
-      humidity: "Umidade",
-      ec: "Condutividade"
+  const fetchLatestRelayStatus = async () => {
+    const { data, error } = await supabase
+      .from("relay_status")
+      .select("*")
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Erro ao buscar status dos relés:", error);
+      return;
+    }
+
+    if (data) setRelayStatus(data);
+  };
+
+  const handleExportReadings = async () => {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30); // Últimos 30 dias
+
+      const response = await supabase.functions.invoke('export-readings', {
+        body: {
+          start_date: startDate.toISOString(),
+          end_date: new Date().toISOString()
+        }
+      });
+
+      if (response.error) throw response.error;
+
+      // Criar link para download
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leituras_aquasys_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Exportação concluída",
+        description: "Relatório baixado com sucesso"
+      });
+    } catch (error) {
+      console.error('Erro ao exportar:', error);
+      toast({
+        title: "Erro",
+        description: "Falha ao exportar relatório",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const getRelayStatus = (index: number): boolean => {
+    if (!relayStatus) return false;
+    const statusKeys: Record<number, keyof RelayStatus> = {
+      1: 'relay1_led',
+      2: 'relay2_pump',
+      3: 'relay3_ph_up',
+      4: 'relay4_fan',
+      5: 'relay5_humidity',
+      6: 'relay6_ec',
+      7: 'relay7_co2',
+      8: 'relay8_generic'
     };
-    return modes[mode] || mode;
+    return relayStatus[statusKeys[index]] || false;
   };
 
   return (
     <section>
-      <h2 className="text-2xl font-semibold mb-4 text-foreground flex items-center gap-2">
-        <Settings className="h-6 w-6 text-primary" />
-        Configuração dos Relés
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+          <Settings className="h-6 w-6 text-primary" />
+          Controle dos Relés
+        </h2>
+        <Button onClick={handleExportReadings} variant="outline" size="sm" className="gap-2">
+          <Download className="h-4 w-4" />
+          Exportar Relatório
+        </Button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {relayConfigs.map((config) => (
-          <Card
-            key={config.relay_index}
-            className="border-primary/20 hover:border-primary/40 transition-all cursor-pointer"
-            onClick={() => setSelectedRelay(config.relay_index)}
-          >
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Relé {config.relay_index + 1}</CardTitle>
-              <CardDescription>{getModeLabel(config.mode)}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" size="sm" className="w-full gap-2">
-                <Settings className="h-4 w-4" />
-                Configurar
-              </Button>
-            </CardContent>
-          </Card>
+        {relayConfigs.map((config, index) => (
+          <div key={config.relay_index} className="relative">
+            <RelayCard
+              relayIndex={config.relay_index}
+              name={relayNames[index]}
+              mode={config.mode}
+              isOn={getRelayStatus(config.relay_index)}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedRelay(config.relay_index)}
+              className="absolute top-2 right-2 h-8 w-8 p-0"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
         ))}
       </div>
 
