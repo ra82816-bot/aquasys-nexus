@@ -98,19 +98,34 @@ def check_pending_commands():
                 commands = response.json()
                 
                 for cmd in commands:
-                    # Publicar comando no MQTT
-                    command_msg = {
-                        "relay_index": cmd["relay_index"],
-                        "command": cmd["command"]
-                    }
-                    
-                    if mqtt_client:
-                        mqtt_client.publish(
-                            TOPIC_RELAY_COMMANDS,
-                            json.dumps(command_msg),
-                            qos=1
-                        )
-                        print(f"📤 Comando publicado: Relé {cmd['relay_index']} -> {cmd['command']}")
+                    # Verificar se é um comando de ping (relay_index = -1)
+                    if cmd["relay_index"] == -1:
+                        print("🔔 Ping recebido! Solicitando dados ao ESP32...")
+                        
+                        # Publicar comando de ping no MQTT
+                        ping_msg = {"action": "ping"}
+                        
+                        if mqtt_client:
+                            mqtt_client.publish(
+                                TOPIC_RELAY_COMMANDS,
+                                json.dumps(ping_msg),
+                                qos=1
+                            )
+                            print("📤 Comando de ping enviado ao ESP32")
+                    else:
+                        # Comando normal de relé
+                        command_msg = {
+                            "relay_index": cmd["relay_index"],
+                            "command": cmd["command"]
+                        }
+                        
+                        if mqtt_client:
+                            mqtt_client.publish(
+                                TOPIC_RELAY_COMMANDS,
+                                json.dumps(command_msg),
+                                qos=1
+                            )
+                            print(f"📤 Comando publicado: Relé {cmd['relay_index']} -> {cmd['command']}")
                     
                     # Marcar como executado
                     update_response = requests.patch(
