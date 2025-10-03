@@ -59,7 +59,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Erro no mqtt-ping:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Erro desconhecido' }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500 
