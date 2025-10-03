@@ -20,21 +20,51 @@ const CannabisLeaf = () => (
 const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [latestReading, setLatestReading] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (!session) navigate("/auth");
-    });
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) throw error;
+        
+        if (!session && mounted) {
+          navigate("/auth", { replace: true });
+          return;
+        }
+        
+        if (mounted) {
+          setSession(session);
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("Auth error:", error);
+        if (mounted) {
+          navigate("/auth", { replace: true });
+        }
+      }
+    };
+
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) navigate("/auth");
+      if (!session && mounted) {
+        navigate("/auth", { replace: true });
+      } else if (mounted) {
+        setSession(session);
+        setIsLoading(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [navigate]);
 
   useEffect(() => {
@@ -46,9 +76,9 @@ const Dashboard = () => {
         .select("*")
         .order("timestamp", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== "PGRST116") {
+      if (error) {
         console.error("Error fetching readings:", error);
         return;
       }
@@ -75,10 +105,19 @@ const Dashboard = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast({ title: "Logout realizado com sucesso" });
-    navigate("/auth");
+    navigate("/auth", { replace: true });
   };
 
-  if (!session) return null;
+  if (isLoading || !session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Activity className="h-12 w-12 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5">

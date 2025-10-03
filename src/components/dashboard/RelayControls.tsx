@@ -29,18 +29,22 @@ export const RelayControls = () => {
   const [relayStatus, setRelayStatus] = useState<RelayStatus | null>(null);
   const { toast } = useToast();
 
-
   useEffect(() => {
-    fetchRelayConfigs();
-    fetchLatestRelayStatus();
+    const loadData = async () => {
+      await Promise.all([fetchRelayConfigs(), fetchLatestRelayStatus()]);
+    };
+    
+    loadData();
 
-    // Subscrever ao status em tempo real
     const channel = supabase
       .channel('relay-status-changes')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'relay_status' },
-        (payload) => setRelayStatus(payload.new as RelayStatus)
+        (payload) => {
+          console.log('Novo status de relé recebido:', payload.new);
+          setRelayStatus(payload.new as RelayStatus);
+        }
       )
       .subscribe();
 
@@ -50,39 +54,50 @@ export const RelayControls = () => {
   }, []);
 
   const fetchRelayConfigs = async () => {
-    const { data, error } = await supabase
-      .from("relay_configs")
-      .select("*")
-      .order("relay_index");
+    try {
+      const { data, error } = await supabase
+        .from("relay_configs")
+        .select("*")
+        .order("relay_index");
 
-    if (error) {
+      if (error) throw error;
+
+      console.log('Configurações dos relés carregadas:', data);
+      setRelayConfigs(data || []);
+    } catch (error) {
       console.error("Erro ao buscar configurações dos relés:", error);
-      return;
+      toast({
+        title: "Erro",
+        description: "Não foi possível carregar as configurações dos relés",
+        variant: "destructive"
+      });
     }
-
-    setRelayConfigs(data || []);
   };
 
   const fetchLatestRelayStatus = async () => {
-    const { data, error } = await supabase
-      .from("relay_status")
-      .select("*")
-      .order("timestamp", { ascending: false })
-      .limit(1)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("relay_status")
+        .select("*")
+        .order("timestamp", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (error && error.code !== "PGRST116") {
+      if (error) throw error;
+
+      if (data) {
+        console.log('Status atual dos relés:', data);
+        setRelayStatus(data as RelayStatus);
+      }
+    } catch (error) {
       console.error("Erro ao buscar status dos relés:", error);
-      return;
     }
-
-    if (data) setRelayStatus(data);
   };
 
   const handleExportReadings = async () => {
     try {
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 30); // Últimos 30 dias
+      startDate.setDate(startDate.getDate() - 30);
 
       const response = await supabase.functions.invoke('export-readings', {
         body: {
@@ -93,7 +108,6 @@ export const RelayControls = () => {
 
       if (response.error) throw response.error;
 
-      // Criar link para download
       const blob = new Blob([response.data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -174,10 +188,7 @@ export const RelayControls = () => {
           config={relayConfigs.find(c => c.relay_index === selectedRelay) || null}
           open={selectedRelay !== null}
           onOpenChange={(open) => !open && setSelectedRelay(null)}
-          onSave={() => {
-            fetchRelayConfigs();
-            setSelectedRelay(null);
-          }}
+          onSave={fetchRelayConfigs}
         />
       )}
     </section>

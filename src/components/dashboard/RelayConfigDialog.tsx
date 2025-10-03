@@ -36,6 +36,7 @@ export const RelayConfigDialog = ({
 }: RelayConfigDialogProps) => {
   const [mode, setMode] = useState(config?.mode || "unused");
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -46,22 +47,44 @@ export const RelayConfigDialog = ({
   }, [config]);
 
   const handleSave = async () => {
-    const { error } = await supabase
-      .from("relay_configs")
-      .update({ mode, ...formData })
-      .eq("relay_index", relayIndex);
+    setIsSaving(true);
+    try {
+      const updateData = {
+        mode,
+        ...formData,
+        updated_at: new Date().toISOString()
+      };
 
-    if (error) {
+      console.log('Salvando configuração do relé:', { relayIndex, updateData });
+
+      const { data, error } = await supabase
+        .from("relay_configs")
+        .update(updateData)
+        .eq("relay_index", relayIndex)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('Configuração salva com sucesso:', data);
+
       toast({
-        title: "Erro ao salvar configuração",
+        title: "Sucesso",
+        description: "Configuração salva com sucesso!"
+      });
+
+      await onSave();
+      onOpenChange(false);
+    } catch (error: any) {
+      console.error('Erro ao salvar configuração:', error);
+      toast({
+        title: "Erro",
         description: error.message,
         variant: "destructive"
       });
-      return;
+    } finally {
+      setIsSaving(false);
     }
-
-    toast({ title: "Configuração salva com sucesso!" });
-    onSave();
   };
 
   const renderModeFields = () => {
@@ -275,7 +298,9 @@ export const RelayConfigDialog = ({
           </div>
           {renderModeFields()}
           <div className="flex gap-2 pt-4">
-            <Button onClick={handleSave} className="flex-1">Salvar</Button>
+            <Button onClick={handleSave} className="flex-1" disabled={isSaving}>
+              {isSaving ? "Salvando..." : "Salvar"}
+            </Button>
             <Button onClick={() => onOpenChange(false)} variant="outline" className="flex-1">
               Cancelar
             </Button>
