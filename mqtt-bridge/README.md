@@ -1,63 +1,154 @@
-# Ponte MQTT-HTTP para AquaSys
+# Integração MQTT com HiveMQ Cloud - Webhooks
 
-Este script conecta o HiveMQ Cloud ao sistema Lovable, recebendo dados dos sensores e status dos relés via MQTT e enviando para o backend.
+**✨ NOVA ARQUITETURA - SEM SERVIDOR EXTERNO**
 
-## Instalação
+Este projeto agora usa **Webhooks do HiveMQ** para enviar dados diretamente para o backend, eliminando a necessidade de rodar um script Python separado.
 
-1. Instale o Python 3.7 ou superior
-2. Instale as dependências:
-```bash
-pip install -r requirements.txt
+## 🎯 Como Funciona
+
+### Fluxo de Dados (Sensores → Backend)
+1. ESP32 publica dados nos tópicos MQTT
+2. HiveMQ detecta a mensagem e dispara webhook
+3. Webhook chama diretamente a Edge Function
+4. Dados são salvos no banco automaticamente
+
+### Fluxo de Comandos (Backend → ESP32)
+1. Usuário aciona relé no dashboard
+2. Comando é salvo na tabela `relay_commands`
+3. ESP32 faz polling periódico (a cada 5-10s)
+4. ESP32 lê comandos pendentes e executa
+
+## 📋 Configuração do HiveMQ Cloud
+
+### 1. Acesse o Console do HiveMQ
+- Acesse: https://console.hivemq.cloud
+- Faça login na sua conta
+- Selecione seu cluster
+
+### 2. Configure Webhooks
+
+Vá em **Integrations → Webhooks** e crie **2 webhooks**:
+
+#### Webhook 1: Sensores
+```
+Name: AquaSys Sensors
+Topic Filter: aquasys/sensors/all
+URL: https://oaabtbvwxsjomeeizciq.supabase.co/functions/v1/mqtt-collector
+Method: POST
+Headers:
+  Content-Type: application/json
+
+Body Template (JSON):
+{
+  "action": "process_sensors",
+  "data": {
+    "ph": {{ph}},
+    "ec": {{ec}},
+    "airTemp": {{airTemp}},
+    "humidity": {{humidity}},
+    "waterTemp": {{waterTemp}}
+  }
+}
 ```
 
-## Configuração
+#### Webhook 2: Status dos Relés
+```
+Name: AquaSys Relay Status
+Topic Filter: aquasys/relay/status
+URL: https://oaabtbvwxsjomeeizciq.supabase.co/functions/v1/mqtt-collector
+Method: POST
+Headers:
+  Content-Type: application/json
 
-Configure as variáveis de ambiente com suas credenciais do HiveMQ:
-
-### Linux/Mac:
-```bash
-export MQTT_BROKER="seu-broker.hivemq.cloud"
-export MQTT_PORT="8883"
-export MQTT_USERNAME="seu-usuario"
-export MQTT_PASSWORD="sua-senha"
+Body Template (JSON):
+{
+  "action": "process_relay_status",
+  "data": {
+    "relay1_led": {{relay1_led}},
+    "relay2_pump": {{relay2_pump}},
+    "relay3_ph_up": {{relay3_ph_up}},
+    "relay4_fan": {{relay4_fan}},
+    "relay5_humidity": {{relay5_humidity}},
+    "relay6_ec": {{relay6_ec}},
+    "relay7_co2": {{relay7_co2}},
+    "relay8_generic": {{relay8_generic}}
+  }
+}
 ```
 
-### Windows (PowerShell):
-```powershell
-$env:MQTT_BROKER="seu-broker.hivemq.cloud"
-$env:MQTT_PORT="8883"
-$env:MQTT_USERNAME="seu-usuario"
-$env:MQTT_PASSWORD="sua-senha"
+### 3. Teste os Webhooks
+
+Publique uma mensagem de teste no HiveMQ:
+
+**Tópico:** `aquasys/sensors/all`
+**Payload:**
+```json
+{
+  "ph": 6.5,
+  "ec": 1200,
+  "airTemp": 25,
+  "humidity": 65,
+  "waterTemp": 23
+}
 ```
 
-### Windows (CMD):
-```cmd
-set MQTT_BROKER=seu-broker.hivemq.cloud
-set MQTT_PORT=8883
-set MQTT_USERNAME=seu-usuario
-set MQTT_PASSWORD=sua-senha
+Você deve ver os dados aparecerem no dashboard imediatamente!
+
+## 🔧 Implementação no ESP32
+
+### Polling de Comandos
+
+O ESP32 deve verificar periodicamente a tabela `relay_commands` para executar comandos manuais:
+
+```cpp
+// A cada 5-10 segundos
+void checkRelayCommands() {
+  HTTPClient http;
+  http.begin("https://oaabtbvwxsjomeeizciq.supabase.co/rest/v1/relay_commands?executed=eq.false&select=*");
+  http.addHeader("apikey", "sua-anon-key");
+  http.addHeader("Authorization", "Bearer sua-anon-key");
+  
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String payload = http.getString();
+    // Parse JSON e execute comandos
+    // Marque como executed=true após executar
+  }
+  
+  http.end();
+}
 ```
 
-## Execução
+### Publicação de Dados
 
-```bash
-python bridge.py
+Continue publicando normalmente nos tópicos MQTT - os webhooks cuidam do resto:
+
+```cpp
+// Publicar sensores
+StaticJsonDocument<200> doc;
+doc["ph"] = readPH();
+doc["ec"] = readEC();
+doc["airTemp"] = readAirTemp();
+doc["humidity"] = readHumidity();
+doc["waterTemp"] = readWaterTemp();
+
+String json;
+serializeJson(doc, json);
+mqttClient.publish("aquasys/sensors/all", json.c_str());
+
+// Publicar status dos relés
+StaticJsonDocument<200> relayDoc;
+relayDoc["relay1_led"] = digitalRead(RELAY1_PIN);
+relayDoc["relay2_pump"] = digitalRead(RELAY2_PIN);
+// ... outros relés
+
+String relayJson;
+serializeJson(relayDoc, relayJson);
+mqttClient.publish("aquasys/relay/status", relayJson.c_str());
 ```
 
-## O que faz
-
-1. **Conecta ao HiveMQ Cloud** usando SSL/TLS
-2. **Subscreve aos tópicos**:
-   - `aquasys/sensors/all` - dados dos sensores
-   - `aquasys/relay/status` - status dos relés
-3. **Envia dados para o backend** via HTTP POST
-4. **Exibe logs** de todas as operações
-
-## Teste
-
-Para testar, você pode usar o botão "Inserir Dados de Teste" no dashboard, ou publicar mensagens manualmente no HiveMQ.
-
-Formato esperado das mensagens:
+## 📊 Formato das Mensagens
 
 ### Sensores (aquasys/sensors/all):
 ```json
@@ -84,18 +175,14 @@ Formato esperado das mensagens:
 }
 ```
 
-## Próximos Passos
+## ✅ Vantagens desta Arquitetura
 
-Após a ponte estar funcionando, você precisará:
+- ✨ **Sem servidor externo** - não precisa manter script Python rodando
+- 🚀 **Latência baixíssima** - dados chegam instantaneamente
+- 💰 **Custo zero** - HiveMQ e Supabase têm planos gratuitos
+- 🔄 **Auto-scaling** - Edge Functions escalam automaticamente
+- 🛡️ **Mais confiável** - sem ponto único de falha
 
-1. **Configurar os relés** no dashboard (clique no ícone de configuração em cada relé)
-2. **Definir os modos de operação** (LED, Ciclo, pH, Temperatura, etc.)
-3. **Implementar no ESP32** a leitura da tabela `relay_commands` para controle manual
+## 🗑️ Arquivos Legados
 
-## Manter Rodando 24/7
-
-Para produção, considere usar:
-- **Linux**: `systemd` service ou `supervisor`
-- **Windows**: Executar como serviço com `NSSM`
-- **Docker**: Containerizar o script
-- **Cloud**: Deploy em serviço como Heroku, Railway, ou Render
+Os arquivos `bridge.py` e `requirements.txt` foram mantidos apenas como referência da arquitetura anterior. Eles **não são mais necessários** para o funcionamento do sistema.
