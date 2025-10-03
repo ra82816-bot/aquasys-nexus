@@ -22,17 +22,20 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const { toast } = useToast();
 
   const handleToggle = async () => {
+    console.log('🔧 RelayCard: handleToggle iniciado', { relayIndex, mode, isOn });
+    
     if (mode !== 'manual') {
+      console.warn('⚠️ RelayCard: Modo incorreto', { mode, required: 'manual' });
       toast({
         title: "Modo incorreto",
-        description: "O relé deve estar em modo manual para controle direto",
+        description: "O relé deve estar em modo manual para controle direto. Configure o modo nas configurações (ícone de engrenagem).",
         variant: "destructive"
       });
       return;
     }
 
     setIsLoading(true);
-    console.log('RelayCard: Enviando comando para relé', { relayIndex, command: !isOn });
+    console.log('📤 RelayCard: Enviando comando para relé', { relayIndex, command: !isOn });
 
     try {
       const { data, error } = await supabase.functions.invoke('relay-control', {
@@ -42,19 +45,22 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
         }
       });
 
-      console.log('RelayCard: Resposta recebida', { data, error });
+      console.log('✅ RelayCard: Resposta recebida', { data, error });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ RelayCard: Erro na resposta', error);
+        throw error;
+      }
 
       toast({
         title: "Comando enviado",
-        description: `Relé ${relayIndex + 1} - ${!isOn ? 'LIGAR' : 'DESLIGAR'}`
+        description: `Relé ${relayIndex + 1} - ${!isOn ? 'LIGAR' : 'DESLIGAR'}. Aguardando confirmação do ESP32...`
       });
     } catch (error) {
-      console.error('RelayCard: Erro ao enviar comando:', error);
+      console.error('❌ RelayCard: Erro ao enviar comando:', error);
       toast({
         title: "Erro",
-        description: "Falha ao enviar comando",
+        description: error instanceof Error ? error.message : "Falha ao enviar comando",
         variant: "destructive"
       });
     } finally {
@@ -112,12 +118,13 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     const labels: { [key: string]: string } = {
       unused: 'Não usado',
       manual: 'Manual',
-      ph_control: 'Controle de pH',
-      temp_control: 'Controle de Temp.',
-      humidity_control: 'Controle de Umidade',
-      led_schedule: 'LED Programado',
-      ec_pulse: 'Pulso EC',
-      cycle_timer: 'Timer Cíclico'
+      ph_up: 'pH Up',
+      ph_down: 'pH Down',
+      temperature: 'Temperatura',
+      humidity: 'Umidade',
+      led: 'LED Programado',
+      ec: 'EC',
+      cycle: 'Timer Cíclico'
     };
     return labels[mode] || mode;
   };
@@ -171,6 +178,12 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
           <div className="text-sm text-muted-foreground">
             Modo: {getModeLabel(mode)}
           </div>
+
+          {mode === 'unused' && (
+            <div className="text-xs text-amber-500 bg-amber-500/10 p-2 rounded">
+              ⚙️ Configure este relé clicando no ícone de engrenagem acima
+            </div>
+          )}
           
           {mode === 'manual' && (
             <Button
