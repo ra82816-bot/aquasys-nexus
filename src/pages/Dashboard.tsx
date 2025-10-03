@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
-import { TestDataButton } from "@/components/dashboard/TestDataButton";
+import { MqttStatus } from "@/components/dashboard/MqttStatus";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CannabisLeaf = () => (
@@ -133,7 +133,7 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <TestDataButton />
+            <MqttStatus />
             <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
               <LogOut className="h-4 w-4" />
               Sair

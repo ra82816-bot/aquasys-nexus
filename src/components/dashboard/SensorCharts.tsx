@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Loader2, Calendar } from "lucide-react";
+import { Loader2, Calendar, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -18,6 +18,23 @@ export const SensorCharts = () => {
 
   useEffect(() => {
     fetchHistoricalData();
+
+    // Subscribe to realtime updates
+    const channel = supabase
+      .channel("readings-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "readings" },
+        () => {
+          console.log("Nova leitura recebida, atualizando gráficos...");
+          fetchHistoricalData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [startDate, endDate]);
 
   const calculateMovingAverage = (data: number[], windowSize: number = 5) => {
@@ -109,6 +126,57 @@ export const SensorCharts = () => {
           <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <span>Filtrar Período</span>
             <div className="flex flex-wrap gap-2 items-center">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <Download className="h-4 w-4" />
+                    Exportar
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48">
+                  <div className="space-y-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={async () => {
+                        try {
+                          const start = startDate.toISOString();
+                          const end = endDate.toISOString();
+                          const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-readings?start_date=${start}&end_date=${end}&format=csv`;
+                          const response = await fetch(url);
+                          const blob = await response.blob();
+                          const downloadUrl = window.URL.createObjectURL(blob);
+                          const link = document.createElement('a');
+                          link.href = downloadUrl;
+                          link.download = `leituras_${start.split('T')[0]}_${end.split('T')[0]}.csv`;
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                          window.URL.revokeObjectURL(downloadUrl);
+                        } catch (error) {
+                          console.error('Erro ao exportar:', error);
+                        }
+                      }}
+                    >
+                      Exportar CSV (Excel)
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => {
+                        const start = startDate.toISOString();
+                        const end = endDate.toISOString();
+                        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-readings?start_date=${start}&end_date=${end}&format=pdf`;
+                        window.open(url, '_blank');
+                      }}
+                    >
+                      Imprimir/Salvar PDF
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" className={cn("justify-start text-left font-normal")}>
