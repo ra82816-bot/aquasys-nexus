@@ -47,11 +47,8 @@ export const useMqtt = () => {
       client.subscribe(topics, { qos: 1 }, (err) => {
         if (err) {
           console.error('Erro ao subscrever:', err);
-          toast({
-            title: 'Erro MQTT',
-            description: 'Falha ao subscrever nos tópicos',
-            variant: 'destructive',
-          });
+          // Não mostrar toast de erro automaticamente
+          // O status será exibido no componente MqttStatus
         } else {
           console.log('✅ Inscrito nos tópicos:', topics);
         }
@@ -83,11 +80,9 @@ export const useMqtt = () => {
 
     client.on('error', (error) => {
       console.error('❌ Erro MQTT:', error);
-      toast({
-        title: 'Erro de Conexão',
-        description: 'Falha na conexão MQTT',
-        variant: 'destructive',
-      });
+      // Não mostrar toast de erro automaticamente
+      // O status será exibido no componente MqttStatus
+      setIsConnected(false);
     });
 
     client.on('disconnect', () => {
