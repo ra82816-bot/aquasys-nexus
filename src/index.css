@@ -36,6 +36,15 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 120 20% 95%;
     --sidebar-border: 140 20% 25%;
     --sidebar-ring: 142 76% 36%;
+    
+    /* Alert colors */
+    --success: 142 76% 36%;
+    --warning: 38 92% 50%;
+    --danger: 0 84% 60%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(142 76% 36%), hsl(142 76% 45%));
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(120 30% 97%));
   }
 
   .dark {
@@ -66,6 +75,15 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 120 20% 95%;
     --sidebar-border: 140 20% 25%;
     --sidebar-ring: 142 70% 45%;
+    
+    /* Alert colors */
+    --success: 142 70% 45%;
+    --warning: 38 92% 50%;
+    --danger: 0 62% 50%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(142 70% 45%), hsl(142 70% 55%));
+    --gradient-card: linear-gradient(180deg, hsl(140 25% 12%), hsl(140 25% 15%));
   }
 }
 
