@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
-import { LogOut, Activity, BarChart3, Settings } from "lucide-react";
+import { LogOut, Activity, BarChart3, Settings, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { MqttStatus } from "@/components/dashboard/MqttStatus";
+import { AIInsights } from "@/components/dashboard/AIInsights";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CannabisLeaf = () => (
@@ -144,7 +145,7 @@ const Dashboard = () => {
 
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="sensors" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-8">
+          <TabsList className="grid w-full grid-cols-4 mb-8">
             <TabsTrigger value="sensors" className="gap-2">
               <Activity className="h-4 w-4" />
               Sensores
@@ -152,6 +153,10 @@ const Dashboard = () => {
             <TabsTrigger value="charts" className="gap-2">
               <BarChart3 className="h-4 w-4" />
               Gráficos
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="gap-2">
+              <Brain className="h-4 w-4" />
+              Análise IA
             </TabsTrigger>
             <TabsTrigger value="relays" className="gap-2">
               <Settings className="h-4 w-4" />
@@ -173,6 +178,14 @@ const Dashboard = () => {
               Histórico de Leituras
             </h2>
             <SensorCharts />
+          </TabsContent>
+
+          <TabsContent value="ai" className="space-y-4">
+            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Brain className="h-6 w-6 text-primary" />
+              Insights Inteligentes
+            </h2>
+            <AIInsights />
           </TabsContent>
 
           <TabsContent value="relays" className="space-y-4">

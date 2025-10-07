@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_insights: {
+        Row: {
+          created_at: string
+          data_points: Json | null
+          description: string
+          id: string
+          insight_type: string
+          is_active: boolean
+          recommendations: string[] | null
+          severity: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          data_points?: Json | null
+          description: string
+          id?: string
+          insight_type: string
+          is_active?: boolean
+          recommendations?: string[] | null
+          severity: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          data_points?: Json | null
+          description?: string
+          id?: string
+          insight_type?: string
+          is_active?: boolean
+          recommendations?: string[] | null
+          severity?: string
+          title?: string
+        }
+        Relationships: []
+      }
       event_logs: {
         Row: {
           id: number

@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.export-readings]
 verify_jwt = false
+
+[functions.ai-analytics]
+verify_jwt = false
