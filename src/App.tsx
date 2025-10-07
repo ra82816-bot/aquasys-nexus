@@ -7,6 +7,8 @@ import { MqttProvider } from "@/contexts/MqttContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
+import Community from "./pages/Community";
+import Plants from "./pages/Plants";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +24,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/community" element={<Community />} />
+            <Route path="/plants" element={<Plants />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

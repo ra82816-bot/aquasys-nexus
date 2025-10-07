@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
-import { LogOut, Activity, BarChart3, Settings, Brain } from "lucide-react";
+import { LogOut, Activity, BarChart3, Settings, Brain, Users, Sprout } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { SensorCharts } from "@/components/dashboard/SensorCharts";
@@ -135,6 +135,14 @@ const Dashboard = () => {
           </div>
           <div className="flex items-center gap-2">
             <MqttStatus />
+            <Button onClick={() => navigate('/plants')} variant="outline" size="sm" className="gap-2">
+              <Sprout className="h-4 w-4" />
+              Plantas
+            </Button>
+            <Button onClick={() => navigate('/community')} variant="outline" size="sm" className="gap-2">
+              <Users className="h-4 w-4" />
+              Comunidade
+            </Button>
             <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
               <LogOut className="h-4 w-4" />
               Sair

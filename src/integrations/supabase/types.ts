@@ -71,6 +71,295 @@ export type Database = {
         }
         Relationships: []
       }
+      forum_comments: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          is_anonymous: boolean | null
+          parent_comment_id: string | null
+          post_id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          is_anonymous?: boolean | null
+          parent_comment_id?: string | null
+          post_id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_anonymous?: boolean | null
+          parent_comment_id?: string | null
+          post_id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forum_comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "forum_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forum_comments_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "forum_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      forum_likes: {
+        Row: {
+          comment_id: string | null
+          created_at: string | null
+          id: string
+          post_id: string | null
+          user_id: string
+        }
+        Insert: {
+          comment_id?: string | null
+          created_at?: string | null
+          id?: string
+          post_id?: string | null
+          user_id: string
+        }
+        Update: {
+          comment_id?: string | null
+          created_at?: string | null
+          id?: string
+          post_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forum_likes_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "forum_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forum_likes_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "forum_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      forum_posts: {
+        Row: {
+          ai_report: Json | null
+          content: string
+          created_at: string | null
+          id: string
+          images: string[] | null
+          is_anonymous: boolean | null
+          plant_id: string | null
+          sensor_data: Json | null
+          title: string
+          updated_at: string | null
+          user_id: string
+          views_count: number | null
+        }
+        Insert: {
+          ai_report?: Json | null
+          content: string
+          created_at?: string | null
+          id?: string
+          images?: string[] | null
+          is_anonymous?: boolean | null
+          plant_id?: string | null
+          sensor_data?: Json | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+          views_count?: number | null
+        }
+        Update: {
+          ai_report?: Json | null
+          content?: string
+          created_at?: string | null
+          id?: string
+          images?: string[] | null
+          is_anonymous?: boolean | null
+          plant_id?: string | null
+          sensor_data?: Json | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+          views_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forum_posts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plant_observations: {
+        Row: {
+          created_at: string | null
+          ec_level: number | null
+          height_cm: number | null
+          humidity: number | null
+          id: string
+          images: string[] | null
+          notes: string | null
+          observation_date: string
+          ph_level: number | null
+          plant_id: string
+          temperature: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          ec_level?: number | null
+          height_cm?: number | null
+          humidity?: number | null
+          id?: string
+          images?: string[] | null
+          notes?: string | null
+          observation_date: string
+          ph_level?: number | null
+          plant_id: string
+          temperature?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          ec_level?: number | null
+          height_cm?: number | null
+          humidity?: number | null
+          id?: string
+          images?: string[] | null
+          notes?: string | null
+          observation_date?: string
+          ph_level?: number | null
+          plant_id?: string
+          temperature?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_observations_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plants: {
+        Row: {
+          adjustments_made: string | null
+          avg_humidity: number | null
+          avg_ph: number | null
+          avg_temperature: number | null
+          created_at: string | null
+          general_notes: string | null
+          genetics: string | null
+          germination_date: string | null
+          harvest_date: string | null
+          id: string
+          light_cycle: string | null
+          nickname: string
+          nutrients_frequency: string | null
+          nutrients_type: string | null
+          origin: Database["public"]["Enums"]["plant_origin"]
+          pests_diseases: string | null
+          quality_aroma: number | null
+          quality_color: number | null
+          quality_density: number | null
+          quality_resin: number | null
+          registration_number: string | null
+          sex: Database["public"]["Enums"]["plant_sex"] | null
+          species: string | null
+          status: Database["public"]["Enums"]["plant_status"] | null
+          stress_events: string | null
+          substrate_type: string | null
+          transplant_date: string | null
+          updated_at: string | null
+          user_id: string
+          yield_grams: number | null
+        }
+        Insert: {
+          adjustments_made?: string | null
+          avg_humidity?: number | null
+          avg_ph?: number | null
+          avg_temperature?: number | null
+          created_at?: string | null
+          general_notes?: string | null
+          genetics?: string | null
+          germination_date?: string | null
+          harvest_date?: string | null
+          id?: string
+          light_cycle?: string | null
+          nickname: string
+          nutrients_frequency?: string | null
+          nutrients_type?: string | null
+          origin?: Database["public"]["Enums"]["plant_origin"]
+          pests_diseases?: string | null
+          quality_aroma?: number | null
+          quality_color?: number | null
+          quality_density?: number | null
+          quality_resin?: number | null
+          registration_number?: string | null
+          sex?: Database["public"]["Enums"]["plant_sex"] | null
+          species?: string | null
+          status?: Database["public"]["Enums"]["plant_status"] | null
+          stress_events?: string | null
+          substrate_type?: string | null
+          transplant_date?: string | null
+          updated_at?: string | null
+          user_id: string
+          yield_grams?: number | null
+        }
+        Update: {
+          adjustments_made?: string | null
+          avg_humidity?: number | null
+          avg_ph?: number | null
+          avg_temperature?: number | null
+          created_at?: string | null
+          general_notes?: string | null
+          genetics?: string | null
+          germination_date?: string | null
+          harvest_date?: string | null
+          id?: string
+          light_cycle?: string | null
+          nickname?: string
+          nutrients_frequency?: string | null
+          nutrients_type?: string | null
+          origin?: Database["public"]["Enums"]["plant_origin"]
+          pests_diseases?: string | null
+          quality_aroma?: number | null
+          quality_color?: number | null
+          quality_density?: number | null
+          quality_resin?: number | null
+          registration_number?: string | null
+          sex?: Database["public"]["Enums"]["plant_sex"] | null
+          species?: string | null
+          status?: Database["public"]["Enums"]["plant_status"] | null
+          stress_events?: string | null
+          substrate_type?: string | null
+          transplant_date?: string | null
+          updated_at?: string | null
+          user_id?: string
+          yield_grams?: number | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -245,6 +534,59 @@ export type Database = {
         }
         Relationships: []
       }
+      shared_cultivation_data: {
+        Row: {
+          created_at: string | null
+          environmental_data: Json | null
+          final_yield: number | null
+          genetics: string | null
+          growth_data: Json | null
+          id: string
+          issues_encountered: string[] | null
+          nutrients_data: Json | null
+          plant_id: string | null
+          quality_metrics: Json | null
+          substrate_type: string | null
+          successful_adjustments: string[] | null
+        }
+        Insert: {
+          created_at?: string | null
+          environmental_data?: Json | null
+          final_yield?: number | null
+          genetics?: string | null
+          growth_data?: Json | null
+          id?: string
+          issues_encountered?: string[] | null
+          nutrients_data?: Json | null
+          plant_id?: string | null
+          quality_metrics?: Json | null
+          substrate_type?: string | null
+          successful_adjustments?: string[] | null
+        }
+        Update: {
+          created_at?: string | null
+          environmental_data?: Json | null
+          final_yield?: number | null
+          genetics?: string | null
+          growth_data?: Json | null
+          id?: string
+          issues_encountered?: string[] | null
+          nutrients_data?: Json | null
+          plant_id?: string | null
+          quality_metrics?: Json | null
+          substrate_type?: string | null
+          successful_adjustments?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_cultivation_data_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -253,6 +595,14 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      plant_origin: "seed" | "clone"
+      plant_sex: "unknown" | "female" | "male" | "hermaphrodite"
+      plant_status:
+        | "germinating"
+        | "vegetative"
+        | "flowering"
+        | "harvested"
+        | "discontinued"
       relay_mode:
         | "unused"
         | "led"
@@ -389,6 +739,15 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      plant_origin: ["seed", "clone"],
+      plant_sex: ["unknown", "female", "male", "hermaphrodite"],
+      plant_status: [
+        "germinating",
+        "vegetative",
+        "flowering",
+        "harvested",
+        "discontinued",
+      ],
       relay_mode: [
         "unused",
         "led",
