@@ -2,17 +2,17 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
-import { Activity, BarChart3, Settings, Brain } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { LogOut, Activity, BarChart3, Settings, Brain, Users, Sprout } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
+import { MqttStatus } from "@/components/dashboard/MqttStatus";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MqttProvider } from "@/contexts/MqttContext";
-import { AppHeader } from "@/components/dashboard/AppHeader";
-import { DashboardStats } from "@/components/dashboard/DashboardStats";
-import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
+import hydroSmartLogo from "@/assets/hydro-smart-logo.webp";
 
 const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -119,16 +119,45 @@ const Dashboard = () => {
   return (
     <MqttProvider>
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5">
-        <AppHeader onLogout={handleLogout} onNavigate={navigate} />
+        <header className="border-b border-border bg-card/95 backdrop-blur-sm sticky top-0 z-50 shadow-sm">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <img 
+                  src={hydroSmartLogo} 
+                  alt="Hydro Smart" 
+                  className="h-12 w-12 rounded-lg shadow-md"
+                />
+                <div>
+                  <h1 className="text-lg font-bold text-primary">Hydro Smart</h1>
+                  <p className="text-xs text-muted-foreground">Agricultura de Precisão</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <MqttStatus />
+                <Button onClick={() => navigate('/plants')} variant="outline" size="sm" className="gap-2">
+                  <Sprout className="h-4 w-4" />
+                  <span className="hidden sm:inline">Plantas</span>
+                </Button>
+                <Button onClick={() => navigate('/community')} variant="outline" size="sm" className="gap-2">
+                  <Users className="h-4 w-4" />
+                  <span className="hidden sm:inline">Comunidade</span>
+                </Button>
+                <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline">Sair</span>
+                </Button>
+              </div>
+            </div>
+            <div className="mt-2 text-center">
+              <p className="text-xs text-muted-foreground">
+                Idealizado e desenvolvido por <span className="font-medium text-primary">André Crepaldi</span>
+              </p>
+            </div>
+          </div>
+        </header>
 
-        <main className="container mx-auto px-4 py-6 space-y-6">
-          {/* Dashboard Stats */}
-          <DashboardStats latestReading={latestReading} />
-
-          {/* Alerts Panel */}
-          <AlertsPanel />
-
-          {/* Main Tabs */}
+        <main className="container mx-auto px-4 py-6">
           <Tabs defaultValue="sensors" className="w-full">
             <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 mb-6">
               <TabsTrigger value="sensors" className="gap-2">
