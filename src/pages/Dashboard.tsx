@@ -11,6 +11,7 @@ import { RelayControls } from "@/components/dashboard/RelayControls";
 import { MqttStatus } from "@/components/dashboard/MqttStatus";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MqttProvider } from "@/contexts/MqttContext";
 
 const CannabisLeaf = () => (
   <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
@@ -121,87 +122,89 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5">
-      <header className="border-b border-primary/20 bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <CannabisLeaf />
+    <MqttProvider>
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5">
+        <header className="border-b border-primary/20 bg-card/80 backdrop-blur-sm sticky top-0 z-10">
+          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <CannabisLeaf />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-primary">HydroSmart Crepaldi</h1>
+                <p className="text-xs text-muted-foreground">Cannabis de precisão</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-primary">HydroSmart Crepaldi</h1>
-              <p className="text-xs text-muted-foreground">Cannabis de precisão</p>
+            <div className="flex items-center gap-2">
+              <MqttStatus />
+              <Button onClick={() => navigate('/plants')} variant="outline" size="sm" className="gap-2">
+                <Sprout className="h-4 w-4" />
+                Plantas
+              </Button>
+              <Button onClick={() => navigate('/community')} variant="outline" size="sm" className="gap-2">
+                <Users className="h-4 w-4" />
+                Comunidade
+              </Button>
+              <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
+                <LogOut className="h-4 w-4" />
+                Sair
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <MqttStatus />
-            <Button onClick={() => navigate('/plants')} variant="outline" size="sm" className="gap-2">
-              <Sprout className="h-4 w-4" />
-              Plantas
-            </Button>
-            <Button onClick={() => navigate('/community')} variant="outline" size="sm" className="gap-2">
-              <Users className="h-4 w-4" />
-              Comunidade
-            </Button>
-            <Button onClick={handleLogout} variant="outline" size="sm" className="gap-2">
-              <LogOut className="h-4 w-4" />
-              Sair
-            </Button>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="sensors" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-8">
-            <TabsTrigger value="sensors" className="gap-2">
-              <Activity className="h-4 w-4" />
-              Sensores
-            </TabsTrigger>
-            <TabsTrigger value="charts" className="gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Gráficos
-            </TabsTrigger>
-            <TabsTrigger value="ai" className="gap-2">
-              <Brain className="h-4 w-4" />
-              Análise IA
-            </TabsTrigger>
-            <TabsTrigger value="relays" className="gap-2">
-              <Settings className="h-4 w-4" />
-              Controles
-            </TabsTrigger>
-          </TabsList>
+        <main className="container mx-auto px-4 py-8">
+          <Tabs defaultValue="sensors" className="w-full">
+            <TabsList className="grid w-full grid-cols-4 mb-8">
+              <TabsTrigger value="sensors" className="gap-2">
+                <Activity className="h-4 w-4" />
+                Sensores
+              </TabsTrigger>
+              <TabsTrigger value="charts" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                Gráficos
+              </TabsTrigger>
+              <TabsTrigger value="ai" className="gap-2">
+                <Brain className="h-4 w-4" />
+                Análise IA
+              </TabsTrigger>
+              <TabsTrigger value="relays" className="gap-2">
+                <Settings className="h-4 w-4" />
+                Controles
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="sensors" className="space-y-4">
-            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-              <Activity className="h-6 w-6 text-primary" />
-              Monitoramento em Tempo Real
-            </h2>
-            <SensorCard latestReading={latestReading} />
-          </TabsContent>
+            <TabsContent value="sensors" className="space-y-4">
+              <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                <Activity className="h-6 w-6 text-primary" />
+                Monitoramento em Tempo Real
+              </h2>
+              <SensorCard latestReading={latestReading} />
+            </TabsContent>
 
-          <TabsContent value="charts" className="space-y-4">
-            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-              <BarChart3 className="h-6 w-6 text-primary" />
-              Histórico de Leituras
-            </h2>
-            <SensorCharts />
-          </TabsContent>
+            <TabsContent value="charts" className="space-y-4">
+              <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                <BarChart3 className="h-6 w-6 text-primary" />
+                Histórico de Leituras
+              </h2>
+              <SensorCharts />
+            </TabsContent>
 
-          <TabsContent value="ai" className="space-y-4">
-            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-              <Brain className="h-6 w-6 text-primary" />
-              Insights Inteligentes
-            </h2>
-            <AIInsights />
-          </TabsContent>
+            <TabsContent value="ai" className="space-y-4">
+              <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                <Brain className="h-6 w-6 text-primary" />
+                Insights Inteligentes
+              </h2>
+              <AIInsights />
+            </TabsContent>
 
-          <TabsContent value="relays" className="space-y-4">
-            <RelayControls />
-          </TabsContent>
-        </Tabs>
-      </main>
-    </div>
+            <TabsContent value="relays" className="space-y-4">
+              <RelayControls />
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
+    </MqttProvider>
   );
 };
 

@@ -32,7 +32,6 @@ export const ForumPostList = ({ filter, userId }: ForumPostListProps) => {
         .from('forum_posts')
         .select(`
           *,
-          profiles:user_id(email),
           forum_likes(count),
           forum_comments(count)
         `);
@@ -109,7 +108,7 @@ export const ForumPostList = ({ filter, userId }: ForumPostListProps) => {
                 <div>
                   <CardTitle className="text-lg">{post.title}</CardTitle>
                   <CardDescription>
-                    {post.is_anonymous ? 'Anônimo' : post.profiles?.email} •{' '}
+                    {post.is_anonymous ? 'Anônimo' : 'Usuário'} •{' '}
                     {formatDistanceToNow(new Date(post.created_at), {
                       addSuffix: true,
                       locale: ptBR,
