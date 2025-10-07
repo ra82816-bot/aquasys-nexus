@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import mqtt, { MqttClient } from 'mqtt';
 import { MQTT_CONFIG } from '@/config/mqtt';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface MqttMessage {
   topic: string;
@@ -57,7 +58,7 @@ export const useMqtt = () => {
       });
     });
 
-    client.on('message', (topic, payload) => {
+    client.on('message', async (topic, payload) => {
       try {
         const data = JSON.parse(payload.toString());
         const message: MqttMessage = {
@@ -68,6 +69,13 @@ export const useMqtt = () => {
         
         console.log('📩 Mensagem recebida:', { topic, data });
         setLastMessage(message);
+
+        // Salvar dados automaticamente no banco via Edge Function
+        if (topic === MQTT_CONFIG.topics.sensors) {
+          await saveSensorData(data);
+        } else if (topic === MQTT_CONFIG.topics.relayStatus) {
+          await saveRelayStatus(data);
+        }
       } catch (error) {
         console.error('Erro ao processar mensagem:', error);
       }
@@ -130,6 +138,63 @@ export const useMqtt = () => {
     },
     []
   );
+
+  const saveSensorData = useCallback(async (data: any) => {
+    try {
+      console.log('💾 Salvando dados de sensores no banco...');
+      
+      const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
+        body: {
+          action: 'process_sensors',
+          data: {
+            ph: data.ph,
+            ec: data.ec,
+            airTemp: data.air_temp || data.airTemp,
+            humidity: data.humidity,
+            waterTemp: data.water_temp || data.waterTemp
+          }
+        }
+      });
+
+      if (error) {
+        console.error('❌ Erro ao salvar sensores:', error);
+      } else {
+        console.log('✅ Dados de sensores salvos:', result);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao chamar edge function:', error);
+    }
+  }, []);
+
+  const saveRelayStatus = useCallback(async (data: any) => {
+    try {
+      console.log('💾 Salvando status dos relés no banco...');
+      
+      const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
+        body: {
+          action: 'process_relay_status',
+          data: {
+            relay1_led: data.relay1_led ?? false,
+            relay2_pump: data.relay2_pump ?? false,
+            relay3_ph_up: data.relay3_ph_up ?? false,
+            relay4_fan: data.relay4_fan ?? false,
+            relay5_humidity: data.relay5_humidity ?? false,
+            relay6_ec: data.relay6_ec ?? false,
+            relay7_co2: data.relay7_co2 ?? false,
+            relay8_generic: data.relay8_generic ?? false
+          }
+        }
+      });
+
+      if (error) {
+        console.error('❌ Erro ao salvar status dos relés:', error);
+      } else {
+        console.log('✅ Status dos relés salvo:', result);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao chamar edge function:', error);
+    }
+  }, []);
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
