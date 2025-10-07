@@ -1,7 +1,7 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'app.lovable.7e63af5c233645ef82292ff1e2827bff',
+  appId: 'com.lovable.aquasysnexus',
   appName: 'aquasys-nexus',
   webDir: 'dist',
   server: {
