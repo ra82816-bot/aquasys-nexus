@@ -9,6 +9,7 @@ import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MqttProvider } from "@/contexts/MqttContext";
 import { AppHeader } from "@/components/dashboard/AppHeader";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
@@ -116,67 +117,69 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5">
-      <AppHeader onLogout={handleLogout} onNavigate={navigate} />
+    <MqttProvider>
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5">
+        <AppHeader onLogout={handleLogout} onNavigate={navigate} />
 
-      <main className="container mx-auto px-4 py-6 space-y-6">
-        {/* Dashboard Stats */}
-        <DashboardStats latestReading={latestReading} />
+        <main className="container mx-auto px-4 py-6 space-y-6">
+          {/* Dashboard Stats */}
+          <DashboardStats latestReading={latestReading} />
 
-        {/* Alerts Panel */}
-        <AlertsPanel />
+          {/* Alerts Panel */}
+          <AlertsPanel />
 
-        {/* Main Tabs */}
-        <Tabs defaultValue="sensors" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 mb-6">
-            <TabsTrigger value="sensors" className="gap-2">
-              <Activity className="h-4 w-4" />
-              <span className="hidden sm:inline">Sensores</span>
-            </TabsTrigger>
-            <TabsTrigger value="charts" className="gap-2">
-              <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Gráficos</span>
-            </TabsTrigger>
-            <TabsTrigger value="ai" className="gap-2">
-              <Brain className="h-4 w-4" />
-              <span className="hidden sm:inline">Análise IA</span>
-            </TabsTrigger>
-            <TabsTrigger value="relays" className="gap-2">
-              <Settings className="h-4 w-4" />
-              <span className="hidden sm:inline">Controles</span>
-            </TabsTrigger>
-          </TabsList>
+          {/* Main Tabs */}
+          <Tabs defaultValue="sensors" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 mb-6">
+              <TabsTrigger value="sensors" className="gap-2">
+                <Activity className="h-4 w-4" />
+                <span className="hidden sm:inline">Sensores</span>
+              </TabsTrigger>
+              <TabsTrigger value="charts" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                <span className="hidden sm:inline">Gráficos</span>
+              </TabsTrigger>
+              <TabsTrigger value="ai" className="gap-2">
+                <Brain className="h-4 w-4" />
+                <span className="hidden sm:inline">Análise IA</span>
+              </TabsTrigger>
+              <TabsTrigger value="relays" className="gap-2">
+                <Settings className="h-4 w-4" />
+                <span className="hidden sm:inline">Controles</span>
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="sensors" className="space-y-4">
-            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-              <Activity className="h-6 w-6 text-primary" />
-              Monitoramento em Tempo Real
-            </h2>
-            <SensorCard latestReading={latestReading} />
-          </TabsContent>
+            <TabsContent value="sensors" className="space-y-4">
+              <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                <Activity className="h-6 w-6 text-primary" />
+                Monitoramento em Tempo Real
+              </h2>
+              <SensorCard latestReading={latestReading} />
+            </TabsContent>
 
-          <TabsContent value="charts" className="space-y-4">
-            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-              <BarChart3 className="h-6 w-6 text-primary" />
-              Histórico de Leituras
-            </h2>
-            <SensorCharts />
-          </TabsContent>
+            <TabsContent value="charts" className="space-y-4">
+              <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                <BarChart3 className="h-6 w-6 text-primary" />
+                Histórico de Leituras
+              </h2>
+              <SensorCharts />
+            </TabsContent>
 
-          <TabsContent value="ai" className="space-y-4">
-            <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-              <Brain className="h-6 w-6 text-primary" />
-              Insights Inteligentes
-            </h2>
-            <AIInsights />
-          </TabsContent>
+            <TabsContent value="ai" className="space-y-4">
+              <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+                <Brain className="h-6 w-6 text-primary" />
+                Insights Inteligentes
+              </h2>
+              <AIInsights />
+            </TabsContent>
 
-          <TabsContent value="relays" className="space-y-4">
-            <RelayControls />
-          </TabsContent>
-        </Tabs>
-      </main>
-    </div>
+            <TabsContent value="relays" className="space-y-4">
+              <RelayControls />
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
+    </MqttProvider>
   );
 };
 
