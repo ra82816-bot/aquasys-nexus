@@ -14,3 +14,12 @@ verify_jwt = false
 
 [functions.ai-analytics]
 verify_jwt = false
+
+[functions.ai-analytics-enhanced]
+verify_jwt = false
+
+[functions.process-knowledge]
+verify_jwt = false
+
+[functions.knowledge-search]
+verify_jwt = false
