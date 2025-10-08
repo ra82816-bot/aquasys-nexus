@@ -13,8 +13,10 @@ interface MqttContextType {
   disconnect: () => void;
 }
 
+// Create context with undefined default to enforce provider usage
 const MqttContext = createContext<MqttContextType | undefined>(undefined);
 
+// Provider component that initializes MQTT connection
 export const MqttProvider = ({ children }: { children: ReactNode }) => {
   const mqtt = useMqtt();
 
@@ -25,6 +27,7 @@ export const MqttProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
+// Custom hook to use MQTT context with error checking
 export const useMqttContext = () => {
   const context = useContext(MqttContext);
   if (!context) {
