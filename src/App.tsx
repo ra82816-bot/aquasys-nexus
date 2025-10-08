@@ -47,6 +47,7 @@ const AppContent = () => {
 };
 
 const App = () => {
+  // MqttProvider wraps the entire app to provide MQTT context
   return (
     <QueryClientProvider client={queryClient}>
       <MqttProvider>
