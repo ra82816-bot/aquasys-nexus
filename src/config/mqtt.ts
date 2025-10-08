@@ -7,6 +7,6 @@ export const MQTT_CONFIG = {
   topics: {
     sensors: 'aquasys/sensors/all',
     relayStatus: 'aquasys/relay/status',
-    relayCommands: 'aquasys/relay/commands',
+    relayCommand: 'aquasys/relay/command',
   },
 };

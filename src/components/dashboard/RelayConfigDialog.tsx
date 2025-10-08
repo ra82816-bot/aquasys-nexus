@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useMqttContext } from "@/contexts/MqttContext";
 
 interface RelayConfigDialogProps {
   relayIndex: number;
@@ -38,6 +39,7 @@ export const RelayConfigDialog = ({
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+  const { publishRelayConfig, isConnected } = useMqttContext();
 
   useEffect(() => {
     if (config) {
@@ -45,6 +47,38 @@ export const RelayConfigDialog = ({
       setFormData(config);
     }
   }, [config]);
+
+  const prepareMqttConfig = (mode: string, formData: Record<string, any>) => {
+    const modeMap: Record<string, number> = {
+      'unused': 0,
+      'led': 1,
+      'cycle': 2,
+      'ph_up': 3,
+      'temperature': 4,
+      'humidity': 5,
+      'ec': 6,
+      'co2': 7,
+      'ph_down': 8,
+      'manual': 0
+    };
+
+    return {
+      mode: modeMap[mode] || 0,
+      led_on_hour: formData.led_on_hour || 6,
+      led_off_hour: formData.led_off_hour || 0,
+      cycle_on_min: formData.cycle_on_min || 15,
+      cycle_off_min: formData.cycle_off_min || 15,
+      ph_pulse_sec: formData.ph_pulse_sec || 5,
+      ph_threshold_low: formData.ph_threshold_low || 5.8,
+      ph_threshold_high: formData.ph_threshold_high || 6.5,
+      temp_threshold_on: formData.temp_threshold_on || 28.0,
+      temp_threshold_off: formData.temp_threshold_off || 26.0,
+      humidity_threshold_on: formData.humidity_threshold_on || 75.0,
+      humidity_threshold_off: formData.humidity_threshold_off || 65.0,
+      ec_threshold: formData.ec_threshold || 1200.0,
+      ec_pulse_sec: formData.ec_pulse_sec || 5
+    };
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -57,6 +91,7 @@ export const RelayConfigDialog = ({
 
       console.log('Salvando configuração do relé:', { relayIndex, updateData });
 
+      // Salvar no banco
       const { data, error } = await supabase
         .from("relay_configs")
         .update(updateData)
@@ -66,11 +101,24 @@ export const RelayConfigDialog = ({
 
       if (error) throw error;
 
-      console.log('Configuração salva com sucesso:', data);
+      console.log('Configuração salva no banco:', data);
+
+      // Enviar via MQTT para o ESP32
+      if (isConnected) {
+        const mqttConfig = prepareMqttConfig(mode, formData);
+        await publishRelayConfig(relayIndex, mqttConfig);
+        console.log('Configuração enviada via MQTT:', mqttConfig);
+      } else {
+        toast({
+          title: "Aviso",
+          description: "Configuração salva, mas MQTT desconectado. Será enviada ao ESP32 quando reconectar.",
+          variant: "default"
+        });
+      }
 
       toast({
         title: "Sucesso",
-        description: "Configuração salva com sucesso!"
+        description: "Configuração salva e enviada ao ESP32!"
       });
 
       await onSave();

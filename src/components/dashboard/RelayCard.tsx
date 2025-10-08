@@ -6,6 +6,7 @@ import { Power, PowerOff, Pencil, Check, X } from "lucide-react";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useMqttContext } from "@/contexts/MqttContext";
 
 interface RelayCardProps {
   relayIndex: number;
@@ -20,9 +21,19 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(name);
   const { toast } = useToast();
+  const { publishRelayCommand, isConnected } = useMqttContext();
 
   const handleToggle = async () => {
     console.log('🔧 RelayCard: handleToggle iniciado', { relayIndex, mode, isOn });
+    
+    if (!isConnected) {
+      toast({
+        title: "MQTT Desconectado",
+        description: "Aguarde a conexão MQTT ser restabelecida",
+        variant: "destructive"
+      });
+      return;
+    }
     
     if (mode !== 'manual') {
       console.warn('⚠️ RelayCard: Modo incorreto', { mode, required: 'manual' });
@@ -35,34 +46,13 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     }
 
     setIsLoading(true);
-    console.log('📤 RelayCard: Enviando comando para relé', { relayIndex, command: !isOn });
+    console.log('📤 RelayCard: Enviando comando MQTT para relé', { relayIndex, command: !isOn });
 
     try {
-      const { data, error } = await supabase.functions.invoke('relay-control', {
-        body: {
-          relay_index: relayIndex,
-          command: !isOn
-        }
-      });
-
-      console.log('✅ RelayCard: Resposta recebida', { data, error });
-
-      if (error) {
-        console.error('❌ RelayCard: Erro na resposta', error);
-        throw error;
-      }
-
-      toast({
-        title: "Comando enviado",
-        description: `Relé ${relayIndex + 1} - ${!isOn ? 'LIGAR' : 'DESLIGAR'}. Aguardando confirmação do ESP32...`
-      });
+      await publishRelayCommand(relayIndex, !isOn);
+      console.log('✅ RelayCard: Comando MQTT enviado com sucesso');
     } catch (error) {
-      console.error('❌ RelayCard: Erro ao enviar comando:', error);
-      toast({
-        title: "Erro",
-        description: error instanceof Error ? error.message : "Falha ao enviar comando",
-        variant: "destructive"
-      });
+      console.error('❌ RelayCard: Erro ao enviar comando MQTT:', error);
     } finally {
       setIsLoading(false);
     }

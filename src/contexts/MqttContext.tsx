@@ -7,6 +7,8 @@ interface MqttContextType {
   lastMessage: MqttMessage | null;
   publish: (topic: string, message: any, options?: any) => Promise<void>;
   publishRelayCommand: (relayIndex: number, command: boolean) => Promise<void>;
+  publishRelayConfig: (relayIndex: number, config: any) => Promise<void>;
+  setRelayAuto: (relayIndex: number) => Promise<void>;
   connect: () => void;
   disconnect: () => void;
 }
