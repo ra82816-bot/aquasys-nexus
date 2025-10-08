@@ -11,6 +11,7 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Community from "./pages/Community";
 import Plants from "./pages/Plants";
+import Knowledge from "./pages/Knowledge";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -40,6 +41,7 @@ const AppContent = () => {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/community" element={<Community />} />
         <Route path="/plants" element={<Plants />} />
+        <Route path="/knowledge" element={<Knowledge />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
