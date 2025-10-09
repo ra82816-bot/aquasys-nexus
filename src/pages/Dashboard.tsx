@@ -12,11 +12,13 @@ import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MqttProvider } from "@/contexts/MqttContext";
 import { AppHeader } from "@/components/dashboard/AppHeader";
+import { MqttFooter } from "@/components/dashboard/MqttFooter";
 
 const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [latestReading, setLatestReading] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentTab, setCurrentTab] = useState("sensors");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -121,31 +123,17 @@ const Dashboard = () => {
 
   return (
     <MqttProvider>
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5 pb-safe">
-        <AppHeader onLogout={handleLogout} onNavigate={handleNavigate} />
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5 pb-16">
+        <AppHeader 
+          onLogout={handleLogout} 
+          onNavigate={handleNavigate}
+          currentTab={currentTab}
+          onTabChange={setCurrentTab}
+        />
 
         <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
-          <Tabs defaultValue="sensors" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 mb-4 sm:mb-6 h-auto p-1">
-              <TabsTrigger value="sensors" className="gap-1 sm:gap-2 flex-col sm:flex-row py-2 sm:py-2.5 text-xs sm:text-sm">
-                <Activity className="h-4 w-4 sm:h-4 sm:w-4" />
-                <span className="text-[10px] sm:text-sm">Sensores</span>
-              </TabsTrigger>
-              <TabsTrigger value="charts" className="gap-1 sm:gap-2 flex-col sm:flex-row py-2 sm:py-2.5 text-xs sm:text-sm">
-                <BarChart3 className="h-4 w-4 sm:h-4 sm:w-4" />
-                <span className="text-[10px] sm:text-sm">Gráficos</span>
-              </TabsTrigger>
-              <TabsTrigger value="ai" className="gap-1 sm:gap-2 flex-col sm:flex-row py-2 sm:py-2.5 text-xs sm:text-sm">
-                <Brain className="h-4 w-4 sm:h-4 sm:w-4" />
-                <span className="text-[10px] sm:text-sm">IA</span>
-              </TabsTrigger>
-              <TabsTrigger value="relays" className="gap-1 sm:gap-2 flex-col sm:flex-row py-2 sm:py-2.5 text-xs sm:text-sm">
-                <Settings className="h-4 w-4 sm:h-4 sm:w-4" />
-                <span className="text-[10px] sm:text-sm">Relés</span>
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="sensors" className="space-y-3 sm:space-y-4">
+          <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
+            <TabsContent value="sensors" className="space-y-3 sm:space-y-4 mt-0">
               <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
                 <Activity className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                 <span className="text-base sm:text-2xl">Monitoramento em Tempo Real</span>
@@ -153,7 +141,7 @@ const Dashboard = () => {
               <SensorCard latestReading={latestReading} />
             </TabsContent>
 
-            <TabsContent value="charts" className="space-y-3 sm:space-y-4">
+            <TabsContent value="charts" className="space-y-3 sm:space-y-4 mt-0">
               <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                 <span className="text-base sm:text-2xl">Histórico de Leituras</span>
@@ -161,7 +149,7 @@ const Dashboard = () => {
               <SensorCharts />
             </TabsContent>
 
-            <TabsContent value="ai" className="space-y-3 sm:space-y-4">
+            <TabsContent value="ai" className="space-y-3 sm:space-y-4 mt-0">
               <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
                 <Brain className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                 <span className="text-base sm:text-2xl">Insights Inteligentes</span>
@@ -169,12 +157,14 @@ const Dashboard = () => {
               <AIInsights />
             </TabsContent>
 
-            <TabsContent value="relays" className="space-y-3 sm:space-y-4">
+            <TabsContent value="relays" className="space-y-3 sm:space-y-4 mt-0">
               <RelayControls />
               <PhControlPanel />
             </TabsContent>
           </Tabs>
         </main>
+
+        <MqttFooter />
       </div>
     </MqttProvider>
   );
