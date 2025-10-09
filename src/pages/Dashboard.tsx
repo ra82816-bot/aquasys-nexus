@@ -10,6 +10,7 @@ import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { MqttStatus } from "@/components/dashboard/MqttStatus";
 import { AIInsights } from "@/components/dashboard/AIInsights";
+import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MqttProvider } from "@/contexts/MqttContext";
 import hydroSmartLogo from "@/assets/hydro-smart-logo.webp";
@@ -207,6 +208,7 @@ const Dashboard = () => {
 
             <TabsContent value="relays" className="space-y-3 sm:space-y-4">
               <RelayControls />
+              <PhControlPanel />
             </TabsContent>
           </Tabs>
         </main>

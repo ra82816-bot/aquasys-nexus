@@ -30,6 +30,9 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
     registration_number: string;
     germination_date: Date | undefined;
     general_notes: string;
+    nutrients_type: string;
+    substrate_type: string;
+    light_cycle: string;
   }>({
     nickname: "",
     species: "",
@@ -38,6 +41,9 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
     registration_number: "",
     germination_date: undefined,
     general_notes: "",
+    nutrients_type: "",
+    substrate_type: "",
+    light_cycle: "",
   });
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -77,6 +83,9 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
           registration_number: formData.registration_number.trim() || null,
           germination_date: formData.germination_date?.toISOString().split('T')[0] || null,
           general_notes: formData.general_notes.trim() || null,
+          nutrients_type: formData.nutrients_type.trim() || null,
+          substrate_type: formData.substrate_type.trim() || null,
+          light_cycle: formData.light_cycle.trim() || null,
           status: 'germinating',
         });
 
@@ -95,6 +104,9 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
         registration_number: "",
         germination_date: undefined,
         general_notes: "",
+        nutrients_type: "",
+        substrate_type: "",
+        light_cycle: "",
       });
       
       onOpenChange(false);
@@ -213,6 +225,57 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
                   />
                 </PopoverContent>
               </Popover>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <Label htmlFor="nutrients_type">Tipo de Nutentes</Label>
+              <Input
+                id="nutrients_type"
+                value={formData.nutrients_type}
+                onChange={(e) => setFormData({ ...formData, nutrients_type: e.target.value })}
+                placeholder="Ex: BioBizz, General Hydroponics"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="substrate_type">Substrato</Label>
+              <Select 
+                value={formData.substrate_type} 
+                onValueChange={(value) => setFormData({ ...formData, substrate_type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="hydroponics">Hidroponia (NFT)</SelectItem>
+                  <SelectItem value="dwc">DWC (Deep Water Culture)</SelectItem>
+                  <SelectItem value="soil">Solo Orgânico</SelectItem>
+                  <SelectItem value="coco">Fibra de Coco</SelectItem>
+                  <SelectItem value="perlite">Perlita/Vermiculita</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="light_cycle">Ciclo de Luz</Label>
+              <Select 
+                value={formData.light_cycle} 
+                onValueChange={(value) => setFormData({ ...formData, light_cycle: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="18/6">18/6 (Vegetativo)</SelectItem>
+                  <SelectItem value="12/12">12/12 (Floração)</SelectItem>
+                  <SelectItem value="20/4">20/4 (Vegetativo intenso)</SelectItem>
+                  <SelectItem value="24/0">24/0 (Contínuo)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
