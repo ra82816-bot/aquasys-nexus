@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Loader2, Calendar, Download } from "lucide-react";
+import { Loader2, Calendar, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -111,6 +111,10 @@ export const SensorCharts = () => {
     }
   };
 
+  const handleRefresh = () => {
+    fetchHistoricalData();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -121,67 +125,17 @@ export const SensorCharts = () => {
 
   return (
     <div className="space-y-6">
-      <Card>
+      <Card className="bg-card/50 backdrop-blur-sm">
         <CardHeader>
-          <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <span>Filtrar Período</span>
-            <div className="flex flex-wrap gap-2 items-center">
+          <CardTitle className="text-base sm:text-xl">Filtrar Período</CardTitle>
+          <div className="flex flex-col sm:flex-row gap-3 mt-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-1">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Download className="h-4 w-4" />
-                    Exportar
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-48">
-                  <div className="space-y-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start"
-                      onClick={async () => {
-                        try {
-                          const start = startDate.toISOString();
-                          const end = endDate.toISOString();
-                          const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-readings?start_date=${start}&end_date=${end}&format=csv`;
-                          const response = await fetch(url);
-                          const blob = await response.blob();
-                          const downloadUrl = window.URL.createObjectURL(blob);
-                          const link = document.createElement('a');
-                          link.href = downloadUrl;
-                          link.download = `leituras_${start.split('T')[0]}_${end.split('T')[0]}.csv`;
-                          document.body.appendChild(link);
-                          link.click();
-                          document.body.removeChild(link);
-                          window.URL.revokeObjectURL(downloadUrl);
-                        } catch (error) {
-                          console.error('Erro ao exportar:', error);
-                        }
-                      }}
-                    >
-                      Exportar CSV (Excel)
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        const start = startDate.toISOString();
-                        const end = endDate.toISOString();
-                        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-readings?start_date=${start}&end_date=${end}&format=pdf`;
-                        window.open(url, '_blank');
-                      }}
-                    >
-                      Imprimir/Salvar PDF
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal")}>
+                  <Button variant="outline" className={cn("justify-start text-left font-normal w-full sm:w-auto")}>
                     <Calendar className="mr-2 h-4 w-4" />
-                    {format(startDate, "PPP", { locale: ptBR })}
+                    <span className="hidden sm:inline">De: </span>
+                    {format(startDate, "dd/MM/yy", { locale: ptBR })}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -191,18 +145,18 @@ export const SensorCharts = () => {
                     onSelect={(date) => date && setStartDate(date)}
                     disabled={(date) => date > endDate}
                     initialFocus
-                    className="pointer-events-auto"
                   />
                 </PopoverContent>
               </Popover>
               
-              <span className="text-sm text-muted-foreground">até</span>
+              <span className="text-sm text-muted-foreground self-center">até</span>
               
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal")}>
+                  <Button variant="outline" className={cn("justify-start text-left font-normal w-full sm:w-auto")}>
                     <Calendar className="mr-2 h-4 w-4" />
-                    {format(endDate, "PPP", { locale: ptBR })}
+                    <span className="hidden sm:inline">Até: </span>
+                    {format(endDate, "dd/MM/yy", { locale: ptBR })}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -212,12 +166,21 @@ export const SensorCharts = () => {
                     onSelect={(date) => date && setEndDate(date)}
                     disabled={(date) => date < startDate || date > new Date()}
                     initialFocus
-                    className="pointer-events-auto"
                   />
                 </PopoverContent>
               </Popover>
             </div>
-          </CardTitle>
+            
+            <Button 
+              onClick={handleRefresh}
+              variant="default"
+              size="sm"
+              className="gap-2 w-full sm:w-auto"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Atualizar
+            </Button>
+          </div>
         </CardHeader>
       </Card>
 
@@ -226,19 +189,22 @@ export const SensorCharts = () => {
           Nenhum dado disponível para o período selecionado
         </div>
       ) : (
-        <div className="space-y-6">
-          <Card>
+        <div className="space-y-4 sm:space-y-6">
+          <Card className="bg-card/50 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle>pH ao longo do tempo</CardTitle>
+              <CardTitle className="text-base sm:text-xl">pH ao longo do tempo</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+            <CardContent className="p-2 sm:p-6">
+              <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={data}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis 
                     dataKey="time" 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
                   />
                   <YAxis 
                     domain={[0, 14]} 
@@ -274,22 +240,25 @@ export const SensorCharts = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-card/50 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle>Condutividade Elétrica (EC)</CardTitle>
+              <CardTitle className="text-base sm:text-xl">Condutividade Elétrica (EC)</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+            <CardContent className="p-2 sm:p-6">
+              <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={data}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis 
                     dataKey="time" 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
                   />
                   <YAxis 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -320,22 +289,25 @@ export const SensorCharts = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-card/50 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle>Temperaturas</CardTitle>
+              <CardTitle className="text-base sm:text-xl">Temperaturas</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+            <CardContent className="p-2 sm:p-6">
+              <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={data}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis 
                     dataKey="time" 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
                   />
                   <YAxis 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -382,23 +354,26 @@ export const SensorCharts = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-card/50 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle>Umidade</CardTitle>
+              <CardTitle className="text-base sm:text-xl">Umidade</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+            <CardContent className="p-2 sm:p-6">
+              <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={data}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis 
                     dataKey="time" 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
                   />
                   <YAxis 
                     domain={[0, 100]} 
                     stroke="hsl(var(--muted-foreground))"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
                   />
                   <Tooltip 
                     contentStyle={{ 

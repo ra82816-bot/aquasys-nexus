@@ -2,18 +2,16 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
-import { Button } from "@/components/ui/button";
-import { LogOut, Activity, BarChart3, Settings, Brain, Users, Sprout } from "lucide-react";
+import { Activity, BarChart3, Settings, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
-import { MqttStatus } from "@/components/dashboard/MqttStatus";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MqttProvider } from "@/contexts/MqttContext";
-import hydroSmartLogo from "@/assets/hydro-smart-logo.webp";
+import { AppHeader } from "@/components/dashboard/AppHeader";
 
 const Dashboard = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -106,6 +104,10 @@ const Dashboard = () => {
     navigate("/auth", { replace: true });
   };
 
+  const handleNavigate = (path: string) => {
+    navigate(path);
+  };
+
   if (isLoading || !session) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -120,46 +122,7 @@ const Dashboard = () => {
   return (
     <MqttProvider>
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5 pb-safe">
-        <header className="border-b border-border bg-gradient-to-r from-card via-card/98 to-primary/5 backdrop-blur-md sticky top-0 z-50 shadow-lg safe-top">
-          <div className="container mx-auto px-3 sm:px-4 py-2.5 sm:py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full animate-pulse" />
-                  <img 
-                    src={hydroSmartLogo} 
-                    alt="Hydro Smart" 
-                    className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl shadow-lg relative z-10 ring-2 ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <h1 className="text-base sm:text-lg font-bold text-primary leading-tight tracking-tight">Hydro Smart</h1>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground">Agricultura de Precisão</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <MqttStatus />
-                <Button onClick={() => navigate('/plants')} variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
-                  <Sprout className="h-4 w-4" />
-                  <span className="hidden sm:inline text-xs">Plantas</span>
-                </Button>
-                <Button onClick={() => navigate('/community')} variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
-                  <Users className="h-4 w-4" />
-                  <span className="hidden sm:inline text-xs">Comunidade</span>
-                </Button>
-                <Button onClick={handleLogout} variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
-                  <LogOut className="h-4 w-4" />
-                  <span className="hidden sm:inline text-xs">Sair</span>
-                </Button>
-              </div>
-            </div>
-            <div className="mt-2 text-center hidden sm:block">
-              <p className="text-[10px] sm:text-xs text-muted-foreground/80">
-                Idealizado e desenvolvido por <span className="font-semibold text-primary">André Crepaldi</span>
-              </p>
-            </div>
-          </div>
-        </header>
+        <AppHeader onLogout={handleLogout} onNavigate={handleNavigate} />
 
         <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
           <Tabs defaultValue="sensors" className="w-full">
