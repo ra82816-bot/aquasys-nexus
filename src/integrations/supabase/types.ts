@@ -433,6 +433,57 @@ export type Database = {
           },
         ]
       }
+      knowledge: {
+        Row: {
+          category: string | null
+          content: string | null
+          created_at: string | null
+          description: string | null
+          error_message: string | null
+          file_path: string | null
+          file_size: number | null
+          id: string
+          is_trusted: boolean | null
+          processing_status: string | null
+          source_type: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          content?: string | null
+          created_at?: string | null
+          description?: string | null
+          error_message?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          is_trusted?: boolean | null
+          processing_status?: string | null
+          source_type?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          content?: string | null
+          created_at?: string | null
+          description?: string | null
+          error_message?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          is_trusted?: boolean | null
+          processing_status?: string | null
+          source_type?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       knowledge_base: {
         Row: {
           author: string | null
@@ -1194,6 +1245,10 @@ export type Database = {
           water_temp_max: number
           water_temp_min: number
         }[]
+      }
+      get_user_storage_usage: {
+        Args: { p_user_id: string }
+        Returns: number
       }
       search_knowledge_by_vector: {
         Args: {

@@ -3,25 +3,29 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, ExternalLink, CheckCircle, Clock, XCircle, Loader2 } from "lucide-react";
+import { FileText, ExternalLink, CheckCircle, Clock, XCircle, Loader2, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+interface KnowledgeListProps {
+  onStorageUpdate: () => void;
+}
+
 interface KnowledgeItem {
   id: string;
   title: string;
-  content_type: string;
-  summary: string | null;
-  source_url: string | null;
-  topics: string[] | null;
+  description: string | null;
+  category: string | null;
+  source_type: string | null;
+  is_trusted: boolean;
   processing_status: string;
-  verified: boolean;
-  quality_score: number | null;
+  file_size: number | null;
+  file_path: string | null;
   created_at: string;
 }
 
-export const KnowledgeList = () => {
+export const KnowledgeList = ({ onStorageUpdate }: KnowledgeListProps) => {
   const [knowledge, setKnowledge] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -29,7 +33,7 @@ export const KnowledgeList = () => {
   const fetchKnowledge = async () => {
     try {
       const { data, error } = await supabase
-        .from('knowledge_base')
+        .from('knowledge')
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -39,7 +43,7 @@ export const KnowledgeList = () => {
       console.error('Error fetching knowledge:', error);
       toast({
         title: "Erro",
-        description: "Não foi possível carregar a base de conhecimento",
+        description: "Não foi possível carregar os materiais",
         variant: "destructive",
       });
     } finally {
@@ -58,7 +62,7 @@ export const KnowledgeList = () => {
         {
           event: '*',
           schema: 'public',
-          table: 'knowledge_base'
+          table: 'knowledge'
         },
         () => {
           fetchKnowledge();
@@ -73,11 +77,11 @@ export const KnowledgeList = () => {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed':
+      case 'indexed':
         return <CheckCircle className="h-4 w-4 text-green-500" />;
       case 'processing':
         return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
-      case 'failed':
+      case 'error':
         return <XCircle className="h-4 w-4 text-red-500" />;
       default:
         return <Clock className="h-4 w-4 text-yellow-500" />;
@@ -86,31 +90,61 @@ export const KnowledgeList = () => {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'completed':
-        return 'Processado';
+      case 'indexed':
+        return 'Indexado';
       case 'processing':
         return 'Processando';
-      case 'failed':
-        return 'Falha';
+      case 'error':
+        return 'Erro';
       default:
         return 'Pendente';
     }
   };
 
-  const getContentTypeLabel = (type: string) => {
+  const getSourceTypeLabel = (type: string | null) => {
+    if (!type) return 'Desconhecido';
     const labels: Record<string, string> = {
-      'scientific_paper': 'Artigo Científico',
-      'guide': 'Guia de Cultivo',
-      'manual': 'Manual Técnico',
-      'research': 'Trabalho de Pesquisa',
-      'forum_post': 'Post do Fórum',
-      'article': 'Artigo Web',
-      'pdf_document': 'Documento PDF',
-      'video_transcript': 'Transcrição de Vídeo',
-      'case_study': 'Estudo de Caso',
-      'user_experience': 'Experiência de Usuário',
+      'pdf': 'PDF',
+      'txt': 'Texto',
+      'csv': 'Planilha CSV',
+      'docx': 'Word',
+      'xlsx': 'Excel',
+      'link': 'Link/Artigo'
     };
     return labels[type] || type;
+  };
+
+  const handleDelete = async (id: string, filePath: string | null) => {
+    try {
+      // Deletar arquivo do storage se existir
+      if (filePath) {
+        await supabase.storage
+          .from('knowledge-materials')
+          .remove([filePath]);
+      }
+
+      // Deletar registro do banco
+      const { error } = await supabase
+        .from('knowledge')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Material removido",
+        description: "O material foi removido com sucesso"
+      });
+
+      onStorageUpdate();
+    } catch (error) {
+      console.error('Error deleting:', error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível remover o material",
+        variant: "destructive"
+      });
+    }
   };
 
   if (loading) {
@@ -126,9 +160,9 @@ export const KnowledgeList = () => {
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Nenhum conteúdo adicionado</h3>
+          <h3 className="text-lg font-semibold mb-2">Nenhum material adicionado</h3>
           <p className="text-muted-foreground text-center">
-            Comece adicionando artigos ou fazendo upload de documentos para construir sua base de conhecimento
+            Comece enviando documentos ou links para treinar a IA com seus próprios materiais
           </p>
         </CardContent>
       </Card>
@@ -149,59 +183,52 @@ export const KnowledgeList = () => {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 {getStatusIcon(item.processing_status)}
-                {item.verified && (
+                {item.is_trusted && (
                   <CheckCircle className="h-4 w-4 text-primary" />
                 )}
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {item.summary && (
+            {item.description && (
               <p className="text-sm text-muted-foreground line-clamp-3">
-                {item.summary}
+                {item.description}
               </p>
             )}
 
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="text-xs">
-                {getContentTypeLabel(item.content_type)}
-              </Badge>
+              {item.source_type && (
+                <Badge variant="outline" className="text-xs">
+                  {getSourceTypeLabel(item.source_type)}
+                </Badge>
+              )}
               <Badge variant="secondary" className="text-xs">
                 {getStatusLabel(item.processing_status)}
               </Badge>
-              {item.quality_score && (
+              {item.file_size && (
                 <Badge variant="outline" className="text-xs">
-                  Qualidade: {(item.quality_score * 100).toFixed(0)}%
+                  {(item.file_size / 1048576).toFixed(2)} MB
                 </Badge>
               )}
             </div>
 
-            {item.topics && item.topics.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {item.topics.slice(0, 3).map((topic, index) => (
-                  <Badge key={index} variant="secondary" className="text-xs">
-                    {topic}
-                  </Badge>
-                ))}
-                {item.topics.length > 3 && (
-                  <Badge variant="secondary" className="text-xs">
-                    +{item.topics.length - 3}
-                  </Badge>
-                )}
-              </div>
+            {item.category && (
+              <Badge variant="secondary" className="text-xs">
+                {item.category}
+              </Badge>
             )}
 
-            {item.source_url && (
+            <div className="flex gap-2 pt-2">
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full gap-2"
-                onClick={() => window.open(item.source_url!, '_blank')}
+                className="flex-1 gap-2 text-destructive hover:text-destructive"
+                onClick={() => handleDelete(item.id, item.file_path || null)}
               >
-                <ExternalLink className="h-3 w-3" />
-                Ver fonte
+                <Trash2 className="h-3 w-3" />
+                Remover
               </Button>
-            )}
+            </div>
           </CardContent>
         </Card>
       ))}

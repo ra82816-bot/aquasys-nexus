@@ -2,20 +2,28 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
-import { Button } from "@/components/ui/button";
-import { LogOut, Upload, BookOpen, FileText, Link as LinkIcon } from "lucide-react";
+import { FileText, Upload, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AppHeader } from "@/components/dashboard/AppHeader";
+import { MqttProvider } from "@/contexts/MqttContext";
+import { MqttFooter } from "@/components/dashboard/MqttFooter";
 import { KnowledgeList } from "@/components/knowledge/KnowledgeList";
 import { UploadKnowledgeDialog } from "@/components/knowledge/UploadKnowledgeDialog";
 import { AddArticleDialog } from "@/components/knowledge/AddArticleDialog";
-import hydroSmartLogo from "@/assets/hydro-smart-logo.webp";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 const Knowledge = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [storageUsed, setStorageUsed] = useState(0);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showArticleDialog, setShowArticleDialog] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const STORAGE_LIMIT = 524288000; // 500MB em bytes
 
   useEffect(() => {
     let mounted = true;
@@ -33,6 +41,7 @@ const Knowledge = () => {
         
         if (mounted) {
           setSession(session);
+          await fetchStorageUsage(session.user.id);
           setIsLoading(false);
         }
       } catch (error) {
@@ -46,11 +55,12 @@ const Knowledge = () => {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
+      if (!session && mounted) {
+        navigate("/auth", { replace: true });
+      } else if (mounted) {
         setSession(session);
-        if (!session) {
-          navigate("/auth", { replace: true });
-        }
+        if (session) fetchStorageUsage(session.user.id);
+        setIsLoading(false);
       }
     });
 
@@ -60,117 +70,113 @@ const Knowledge = () => {
     };
   }, [navigate]);
 
+  const fetchStorageUsage = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_user_storage_usage', { p_user_id: userId });
+
+      if (error) throw error;
+      setStorageUsed(data || 0);
+    } catch (error) {
+      console.error("Error fetching storage:", error);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate("/auth");
+    toast({ title: "Logout realizado com sucesso" });
+    navigate("/auth", { replace: true });
+  };
+
+  const handleNavigate = (path: string) => {
+    navigate(path);
+  };
+
+  const handleUploadSuccess = async () => {
+    if (session) {
+      await fetchStorageUsage(session.user.id);
+    }
   };
 
   if (isLoading || !session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Carregando...</p>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Brain className="h-12 w-12 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground">Carregando...</p>
         </div>
       </div>
     );
   }
 
+  const storagePercentage = (storageUsed / STORAGE_LIMIT) * 100;
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/50 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
+    <MqttProvider>
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5 pb-16">
+        <AppHeader onLogout={handleLogout} onNavigate={handleNavigate} />
+
+        <main className="container mx-auto px-4 py-6 space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <img 
-                src={hydroSmartLogo} 
-                alt="Hydro Smart" 
-                className="h-10 w-10 object-contain"
-              />
+              <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Brain className="h-6 w-6 text-primary" />
+              </div>
               <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-                  Base de Conhecimento
-                </h1>
-                <p className="text-xs text-muted-foreground">
-                  Gerencie artigos e documentos
-                </p>
+                <h1 className="text-2xl sm:text-3xl font-bold">Treinamento da IA</h1>
+                <p className="text-sm text-muted-foreground">Personalize a IA com seus próprios materiais</p>
               </div>
             </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="gap-2"
-            >
-              <LogOut className="h-4 w-4" />
-              Sair
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button onClick={() => setShowArticleDialog(true)} variant="outline" className="gap-2">
+                <FileText className="h-4 w-4" />
+                Adicionar Link
+              </Button>
+              <Button onClick={() => setShowUploadDialog(true)} className="gap-2">
+                <Upload className="h-4 w-4" />
+                Upload de Arquivo
+              </Button>
+            </div>
           </div>
-        </div>
-      </header>
 
-      {/* Navigation Tabs */}
-      <div className="border-b bg-card/30">
-        <div className="container mx-auto px-4">
-          <Tabs defaultValue="knowledge" className="w-full">
-            <TabsList className="w-full justify-start h-12 bg-transparent border-0 rounded-none gap-1">
-              <TabsTrigger 
-                value="dashboard" 
-                onClick={() => navigate("/dashboard")}
-                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg"
-              >
-                <BookOpen className="h-4 w-4 mr-2" />
-                Dashboard
-              </TabsTrigger>
-              <TabsTrigger 
-                value="plants"
-                onClick={() => navigate("/plants")}
-                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                Plantas
-              </TabsTrigger>
-              <TabsTrigger 
-                value="community"
-                onClick={() => navigate("/community")}
-                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg"
-              >
-                <LinkIcon className="h-4 w-4 mr-2" />
-                Comunidade
-              </TabsTrigger>
-              <TabsTrigger 
-                value="knowledge"
-                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg"
-              >
-                <BookOpen className="h-4 w-4 mr-2" />
-                Conhecimento
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
+          {/* Storage Usage */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Armazenamento Utilizado</CardTitle>
+              <CardDescription>
+                {(storageUsed / 1048576).toFixed(2)} MB de {(STORAGE_LIMIT / 1048576).toFixed(0)} MB
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Progress value={storagePercentage} className="h-2" />
+              {storagePercentage > 90 && (
+                <p className="text-xs text-destructive mt-2">
+                  ⚠️ Você está próximo do limite de armazenamento
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Knowledge List */}
+          <KnowledgeList onStorageUpdate={handleUploadSuccess} />
+        </main>
+
+        <MqttFooter />
+
+        <UploadKnowledgeDialog 
+          open={showUploadDialog}
+          onOpenChange={setShowUploadDialog}
+          onSuccess={handleUploadSuccess}
+        />
+
+        <AddArticleDialog
+          open={showArticleDialog}
+          onOpenChange={setShowArticleDialog}
+          onSuccess={handleUploadSuccess}
+        />
       </div>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-6">
-        <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-          <div>
-            <h2 className="text-2xl font-bold">Base de Conhecimento</h2>
-            <p className="text-muted-foreground">
-              Adicione artigos científicos, PDFs e guias para melhorar as análises de IA
-            </p>
-          </div>
-          
-          <div className="flex gap-2">
-            <UploadKnowledgeDialog />
-            <AddArticleDialog />
-          </div>
-        </div>
-
-        <KnowledgeList />
-      </main>
-    </div>
+    </MqttProvider>
   );
 };
 
