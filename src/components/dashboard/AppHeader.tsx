@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { LogOut, Users, Sprout, Menu } from "lucide-react";
+import { LogOut, Users, Sprout, Menu, Camera } from "lucide-react";
 import { MqttStatus } from "./MqttStatus";
 import hydroSmartLogo from "@/assets/hydro-smart-logo.webp";
 import {
@@ -52,6 +52,15 @@ export const AppHeader = ({ onLogout, onNavigate }: AppHeaderProps) => {
               Plantas
             </Button>
             <Button 
+              onClick={() => onNavigate('/camera')} 
+              variant="outline" 
+              size="sm" 
+              className="gap-2 hover:bg-primary/10 hover:border-primary/50 transition-all"
+            >
+              <Camera className="h-4 w-4" />
+              Câmera
+            </Button>
+            <Button 
               onClick={() => onNavigate('/community')} 
               variant="outline" 
               size="sm" 
@@ -84,6 +93,10 @@ export const AppHeader = ({ onLogout, onNavigate }: AppHeaderProps) => {
                 <DropdownMenuItem onClick={() => onNavigate('/plants')} className="gap-2 cursor-pointer">
                   <Sprout className="h-4 w-4" />
                   <span>Plantas</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onNavigate('/camera')} className="gap-2 cursor-pointer">
+                  <Camera className="h-4 w-4" />
+                  <span>Câmera</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onNavigate('/community')} className="gap-2 cursor-pointer">
                   <Users className="h-4 w-4" />
