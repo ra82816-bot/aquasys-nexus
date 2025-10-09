@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Power, PowerOff, Pencil, Check, X } from "lucide-react";
+import { Power, PowerOff, Pencil, Check, X, RefreshCcw } from "lucide-react";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -21,11 +21,9 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(name);
   const { toast } = useToast();
-  const { publishRelayCommand, isConnected } = useMqttContext();
+  const { publish, isConnected } = useMqttContext();
 
   const handleToggle = async () => {
-    console.log('🔧 RelayCard: handleToggle iniciado', { relayIndex, mode, isOn });
-    
     if (!isConnected) {
       toast({
         title: "MQTT Desconectado",
@@ -34,40 +32,69 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       });
       return;
     }
-    
-    if (mode !== 'manual') {
-      console.warn('⚠️ RelayCard: Modo incorreto', { mode, required: 'manual' });
-      toast({
-        title: "Modo incorreto",
-        description: "O relé deve estar em modo manual para controle direto. Configure o modo nas configurações (ícone de engrenagem).",
-        variant: "destructive"
-      });
-      return;
-    }
 
     setIsLoading(true);
-    console.log('📤 RelayCard: Enviando comando MQTT para relé', { relayIndex, command: !isOn });
 
     try {
-      await publishRelayCommand(relayIndex, !isOn);
-      console.log('✅ RelayCard: Comando MQTT enviado com sucesso');
+      // Formato do comando conforme o firmware ESP32
+      const command = {
+        command: "manual_override",
+        payload: {
+          relay: relayIndex + 1, // Firmware usa 1-8
+          state: !isOn ? "on" : "off"
+        }
+      };
+      
+      await publish('aquasys/relay/command', command);
+      
+      toast({
+        title: "Comando enviado",
+        description: `Relé ${relayIndex + 1} alterado para ${!isOn ? 'LIGADO' : 'DESLIGADO'}`,
+      });
     } catch (error) {
-      console.error('❌ RelayCard: Erro ao enviar comando MQTT:', error);
+      console.error('Erro ao enviar comando:', error);
+      toast({
+        title: "Erro",
+        description: "Falha ao enviar comando ao relé",
+        variant: "destructive"
+      });
     } finally {
-      setIsLoading(false);
+      setTimeout(() => setIsLoading(false), 500);
     }
   };
 
-  const handleBadgeClick = async () => {
-    if (mode !== 'manual') {
+  const handleSetAuto = async () => {
+    if (!isConnected) {
       toast({
-        title: "Modo incorreto",
-        description: "O relé deve estar em modo manual para controle direto",
+        title: "MQTT Desconectado",
+        description: "Aguarde a conexão MQTT ser restabelecida",
         variant: "destructive"
       });
       return;
     }
-    await handleToggle();
+
+    try {
+      const command = {
+        command: "set_auto",
+        payload: {
+          relay: relayIndex + 1
+        }
+      };
+      
+      await publish('aquasys/relay/command', command);
+      
+      toast({
+        title: "Modo alterado",
+        description: `Relé ${relayIndex + 1} retornado ao modo AUTOMÁTICO`,
+      });
+    } catch (error) {
+      console.error('Erro ao definir modo auto:', error);
+      toast({
+        title: "Erro",
+        description: "Falha ao alterar modo do relé",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleSaveName = async () => {
@@ -108,15 +135,23 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     const labels: { [key: string]: string } = {
       unused: 'Não usado',
       manual: 'Manual',
-      ph_up: 'pH Up',
-      ph_down: 'pH Down',
+      ph_up: 'pH (Subir)',
+      ph_down: 'pH (Baixar)',
       temperature: 'Temperatura',
       humidity: 'Umidade',
-      led: 'LED Programado',
+      led: 'LED',
       ec: 'EC',
-      cycle: 'Timer Cíclico'
+      cycle: 'Ciclo',
+      co2: 'CO2'
     };
     return labels[mode] || mode;
+  };
+
+  // Cor do badge baseada no estado e conexão
+  const getBadgeColor = () => {
+    if (!isConnected) return 'bg-yellow-500/20 text-yellow-600 border-yellow-500/30';
+    if (isOn) return 'bg-green-500/20 text-green-600 border-green-500/30';
+    return 'bg-muted text-muted-foreground border-border';
   };
 
   return (
@@ -155,18 +190,20 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
             </CardTitle>
           )}
           <Badge 
-            variant={isOn ? "default" : "secondary"}
-            className={`${isOn ? "bg-green-500" : "bg-gray-500"} ${mode === 'manual' ? 'cursor-pointer hover:opacity-80' : ''}`}
-            onClick={mode === 'manual' ? handleBadgeClick : undefined}
+            variant="outline"
+            className={`border ${getBadgeColor()}`}
           >
-            {isOn ? "LIGADO" : "DESLIGADO"}
+            {!isConnected ? 'AGUARDANDO' : isOn ? "LIGADO" : "DESLIGADO"}
           </Badge>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          <div className="text-sm text-muted-foreground">
-            Modo: {getModeLabel(mode)}
+          <div className="text-sm text-muted-foreground flex items-center justify-between">
+            <span>Modo: {getModeLabel(mode)}</span>
+            {mode !== 'manual' && mode !== 'unused' && (
+              <div className={`w-2 h-2 rounded-full ${isOn ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+            )}
           </div>
 
           {mode === 'unused' && (
@@ -175,31 +212,42 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
             </div>
           )}
           
-          {mode === 'manual' && (
+          <div className="flex gap-2">
             <Button
               onClick={handleToggle}
-              disabled={isLoading}
-              className="w-full gap-2"
+              disabled={isLoading || !isConnected}
+              className="flex-1 gap-2"
               variant={isOn ? "destructive" : "default"}
             >
-              {isOn ? (
-                <>
-                  <PowerOff className="h-4 w-4" />
-                  Desligar
-                </>
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Enviando...
+                </span>
               ) : (
                 <>
-                  <Power className="h-4 w-4" />
-                  Ligar
+                  {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                  {isOn ? 'Desligar' : 'Ligar'}
                 </>
               )}
             </Button>
-          )}
+            
+            <Button
+              onClick={handleSetAuto}
+              disabled={isLoading || !isConnected}
+              variant="outline"
+              size="sm"
+              className="px-3"
+              title="Retornar ao modo automático"
+            >
+              <RefreshCcw className="h-4 w-4" />
+            </Button>
+          </div>
 
-          {mode !== 'manual' && mode !== 'unused' && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className={`w-2 h-2 rounded-full ${isOn ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-              {isOn ? 'Automação ativa' : 'Automação inativa'}
+          {!isConnected && (
+            <div className="text-xs text-yellow-600 bg-yellow-500/10 p-2 rounded flex items-center justify-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+              Aguardando conexão MQTT
             </div>
           )}
         </div>
