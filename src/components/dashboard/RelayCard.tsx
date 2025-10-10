@@ -138,12 +138,12 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     const labels: { [key: string]: string } = {
       unused: 'Não usado',
       manual: 'Manual',
-      ph_up: 'pH (Subir)',
-      ph_down: 'pH (Baixar)',
+      ph_up: 'pH Up',
+      ph_down: 'pH Down',
       temperature: 'Temperatura',
       humidity: 'Umidade',
-      led: 'LED',
-      ec: 'EC',
+      led: 'Iluminação',
+      ec: 'Condutividade',
       cycle: 'Ciclo',
       co2: 'CO2'
     };
@@ -203,9 +203,12 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       <CardContent>
         <div className="space-y-3">
           <div className="text-sm text-muted-foreground flex items-center justify-between">
-            <span>Modo: {getModeLabel(mode)}</span>
+            <span className="font-medium">Modo: {getModeLabel(mode)}</span>
             {mode !== 'manual' && mode !== 'unused' && (
-              <div className={`w-2 h-2 rounded-full ${isOn ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+              <div 
+                className={`w-2 h-2 rounded-full ${isOn ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}
+                title={isOn ? 'Ativo' : 'Inativo'}
+              />
             )}
           </div>
 

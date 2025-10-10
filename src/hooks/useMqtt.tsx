@@ -163,21 +163,26 @@ export const useMqtt = () => {
 
   const saveRelayStatus = useCallback(async (data: any) => {
     try {
-      console.log('💾 Salvando status dos relés no banco...');
+      console.log('💾 Salvando status dos relés no banco...', data);
+      
+      // Mapear relay1, relay2, etc. para relay1_led, relay2_pump, etc.
+      const mappedData = {
+        relay1_led: data.relay1 ?? false,
+        relay2_pump: data.relay2 ?? false,
+        relay3_ph_up: data.relay3 ?? false,
+        relay4_fan: data.relay4 ?? false,
+        relay5_humidity: data.relay5 ?? false,
+        relay6_ec: data.relay6 ?? false,
+        relay7_co2: data.relay7 ?? false,
+        relay8_generic: data.relay8 ?? false
+      };
+
+      console.log('💾 Dados mapeados para salvar:', mappedData);
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
           action: 'process_relay_status',
-          data: {
-            relay1_led: data.relay1_led ?? false,
-            relay2_pump: data.relay2_pump ?? false,
-            relay3_ph_up: data.relay3_ph_up ?? false,
-            relay4_fan: data.relay4_fan ?? false,
-            relay5_humidity: data.relay5_humidity ?? false,
-            relay6_ec: data.relay6_ec ?? false,
-            relay7_co2: data.relay7_co2 ?? false,
-            relay8_generic: data.relay8_generic ?? false
-          }
+          data: mappedData
         }
       });
 
