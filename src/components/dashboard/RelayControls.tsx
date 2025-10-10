@@ -36,7 +36,7 @@ export const RelayControls = () => {
     
     loadData();
 
-    const channel = supabase
+    const statusChannel = supabase
       .channel('relay-status-changes')
       .on(
         'postgres_changes',
@@ -48,8 +48,21 @@ export const RelayControls = () => {
       )
       .subscribe();
 
+    const configChannel = supabase
+      .channel('relay-config-changes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'relay_configs' },
+        () => {
+          console.log('Configuração de relé atualizada');
+          fetchRelayConfigs();
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(statusChannel);
+      supabase.removeChannel(configChannel);
     };
   }, []);
 

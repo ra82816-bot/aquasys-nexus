@@ -206,11 +206,6 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
             )}
           </div>
 
-          {mode === 'unused' && (
-            <div className="text-xs text-amber-500 bg-amber-500/10 p-2 rounded">
-              ⚙️ Configure este relé clicando no ícone de engrenagem acima
-            </div>
-          )}
           
           <div className="flex gap-2">
             <Button
