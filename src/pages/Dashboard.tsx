@@ -10,7 +10,6 @@ import { RelayControls } from "@/components/dashboard/RelayControls";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MqttProvider } from "@/contexts/MqttContext";
 import { AppHeader } from "@/components/dashboard/AppHeader";
 import { MqttFooter } from "@/components/dashboard/MqttFooter";
 
@@ -122,51 +121,49 @@ const Dashboard = () => {
   }
 
   return (
-    <MqttProvider>
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5 pb-16">
-        <AppHeader 
-          onLogout={handleLogout} 
-          onNavigate={handleNavigate}
-          currentTab={currentTab}
-          onTabChange={setCurrentTab}
-        />
+    <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-primary/5 pb-16">
+      <AppHeader 
+        onLogout={handleLogout} 
+        onNavigate={handleNavigate}
+        currentTab={currentTab}
+        onTabChange={setCurrentTab}
+      />
 
-        <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
-          <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
-            <TabsContent value="sensors" className="space-y-3 sm:space-y-4 mt-0">
-              <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
-                <Activity className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-                <span className="text-base sm:text-2xl">Monitoramento em Tempo Real</span>
-              </h2>
-              <SensorCard latestReading={latestReading} />
-            </TabsContent>
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
+          <TabsContent value="sensors" className="space-y-3 sm:space-y-4 mt-0">
+            <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Activity className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+              <span className="text-base sm:text-2xl">Monitoramento em Tempo Real</span>
+            </h2>
+            <SensorCard latestReading={latestReading} />
+          </TabsContent>
 
-            <TabsContent value="charts" className="space-y-3 sm:space-y-4 mt-0">
-              <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-                <span className="text-base sm:text-2xl">Histórico de Leituras</span>
-              </h2>
-              <SensorCharts />
-            </TabsContent>
+          <TabsContent value="charts" className="space-y-3 sm:space-y-4 mt-0">
+            <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+              <span className="text-base sm:text-2xl">Histórico de Leituras</span>
+            </h2>
+            <SensorCharts />
+          </TabsContent>
 
-            <TabsContent value="ai" className="space-y-3 sm:space-y-4 mt-0">
-              <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
-                <Brain className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-                <span className="text-base sm:text-2xl">Insights Inteligentes</span>
-              </h2>
-              <AIInsights />
-            </TabsContent>
+          <TabsContent value="ai" className="space-y-3 sm:space-y-4 mt-0">
+            <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Brain className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+              <span className="text-base sm:text-2xl">Insights Inteligentes</span>
+            </h2>
+            <AIInsights />
+          </TabsContent>
 
-            <TabsContent value="relays" className="space-y-3 sm:space-y-4 mt-0">
-              <RelayControls />
-              <PhControlPanel />
-            </TabsContent>
-          </Tabs>
-        </main>
+          <TabsContent value="relays" className="space-y-3 sm:space-y-4 mt-0">
+            <RelayControls />
+            <PhControlPanel />
+          </TabsContent>
+        </Tabs>
+      </main>
 
-        <MqttFooter />
-      </div>
-    </MqttProvider>
+      <MqttFooter />
+    </div>
   );
 };
 
