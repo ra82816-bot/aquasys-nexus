@@ -99,8 +99,10 @@ export const RelayControls = () => {
       if (error) throw error;
 
       if (data) {
-        console.log('Status atual dos relés:', data);
+        console.log('Status atual dos relés carregado:', data);
         setRelayStatus(data as RelayStatus);
+      } else {
+        console.log('Nenhum status de relé encontrado no banco');
       }
     } catch (error) {
       console.error("Erro ao buscar status dos relés:", error);

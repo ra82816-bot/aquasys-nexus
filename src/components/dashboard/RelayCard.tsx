@@ -36,20 +36,23 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     setIsLoading(true);
 
     try {
+      const newState = !isOn;
+      
       // Formato do comando conforme o firmware ESP32
       const command = {
         command: "manual_override",
         payload: {
           relay: relayIndex + 1, // Firmware usa 1-8
-          state: !isOn ? "on" : "off"
+          state: newState ? "on" : "off"
         }
       };
       
+      console.log('Enviando comando de toggle:', command);
       await publish('aquasys/relay/command', command);
       
       toast({
         title: "Comando enviado",
-        description: `Relé ${relayIndex + 1} alterado para ${!isOn ? 'LIGADO' : 'DESLIGADO'}`,
+        description: `Relé ${relayIndex + 1} ${newState ? 'LIGADO' : 'DESLIGADO'}`,
       });
     } catch (error) {
       console.error('Erro ao enviar comando:', error);
@@ -213,11 +216,12 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
               disabled={isLoading || !isConnected}
               className="flex-1 gap-2"
               variant={isOn ? "destructive" : "default"}
+              title={isOn ? "Desligar relé" : "Ligar relé"}
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Enviando...
+                  Processando...
                 </span>
               ) : (
                 <>
