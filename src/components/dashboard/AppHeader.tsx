@@ -32,8 +32,12 @@ export const AppHeader = ({ onLogout, onNavigate, currentTab, onTabChange }: App
 
   const handleMenuClick = (item: typeof menuItems[0]) => {
     if (item.isDashboardTab && onTabChange) {
-      onNavigate("/");
-      setTimeout(() => onTabChange(item.id), 100);
+      if (!isDashboard) {
+        onNavigate("/dashboard");
+        setTimeout(() => onTabChange(item.id), 100);
+      } else {
+        onTabChange(item.id);
+      }
     } else if (item.route) {
       onNavigate(item.route);
     }
