@@ -198,13 +198,10 @@ export const useMqtt = () => {
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
-      // Formato esperado pelo firmware ESP32
+      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        command: 'manual_override',
-        payload: {
-          relay: relayIndex + 1, // ESP32 usa 1-8, não 0-7
-          state: command ? 'on' : 'off'
-        }
+        relay: relayIndex + 1, // ESP32 usa 1-8, não 0-7
+        command: command // boolean direto
       };
 
       try {
@@ -227,13 +224,10 @@ export const useMqtt = () => {
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
-      // Formato esperado pelo firmware ESP32
+      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        command: 'update_config',
-        payload: {
-          relay_index: relayIndex, // 0-7
-          config: config
-        }
+        relay: relayIndex + 1, // ESP32 usa 1-8
+        config: config
       };
 
       try {
@@ -258,12 +252,10 @@ export const useMqtt = () => {
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
-      // Formato esperado pelo firmware ESP32
+      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        command: 'set_auto',
-        payload: {
-          relay: relayIndex + 1 // ESP32 usa 1-8, não 0-7
-        }
+        relay: relayIndex + 1, // ESP32 usa 1-8
+        auto: true
       };
 
       try {
