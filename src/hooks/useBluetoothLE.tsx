@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BleClient, BleDevice, ScanResult } from '@capacitor-community/bluetooth-le';
+import { Capacitor } from '@capacitor/core';
 import { toast } from '@/hooks/use-toast';
 
 interface BluetoothState {
@@ -19,44 +20,91 @@ export const useBluetoothLE = () => {
     receivedData: [],
   });
 
-  // Initialize Bluetooth
-  const initialize = useCallback(async () => {
+  // Request permissions
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     try {
+      if (Capacitor.getPlatform() === 'web') {
+        return true; // Web doesn't need permissions
+      }
+      
+      // Request BLE permissions (includes location on Android)
       await BleClient.initialize();
-      const enabled = await BleClient.isEnabled();
-      setState(prev => ({ ...prev, isEnabled: enabled }));
-      return enabled;
+      return true;
     } catch (error) {
-      console.error('Bluetooth initialization error:', error);
+      console.error('Permission request error:', error);
       toast({
-        title: 'Erro ao inicializar Bluetooth',
-        description: 'Não foi possível inicializar o Bluetooth',
+        title: 'Permissão Negada',
+        description: 'Habilite as permissões Bluetooth nas configurações do dispositivo',
         variant: 'destructive',
       });
       return false;
     }
   }, []);
 
-  // Request Bluetooth enable
-  const requestEnable = useCallback(async () => {
+  // Initialize Bluetooth
+  const initialize = useCallback(async () => {
     try {
-      await BleClient.requestEnable();
-      setState(prev => ({ ...prev, isEnabled: true }));
-      toast({
-        title: 'Bluetooth Ativado',
-        description: 'O Bluetooth foi ativado com sucesso',
-      });
-      return true;
+      await BleClient.initialize();
+      
+      // Request permissions explicitly
+      const hasPermissions = await requestPermissions();
+      if (!hasPermissions) {
+        return false;
+      }
+      
+      const enabled = await BleClient.isEnabled();
+      setState(prev => ({ ...prev, isEnabled: enabled }));
+      
+      if (!enabled) {
+        toast({
+          title: 'Bluetooth Desativado',
+          description: 'Ative o Bluetooth para continuar',
+        });
+      }
+      
+      return enabled;
     } catch (error) {
-      console.error('Error enabling Bluetooth:', error);
+      console.error('Bluetooth initialization error:', error);
       toast({
-        title: 'Erro',
-        description: 'Não foi possível ativar o Bluetooth',
+        title: 'Erro ao inicializar Bluetooth',
+        description: 'Verifique as permissões nas configurações do dispositivo',
         variant: 'destructive',
       });
       return false;
     }
-  }, []);
+  }, [requestPermissions]);
+
+  // Request Bluetooth enable
+  const requestEnable = useCallback(async (): Promise<boolean> => {
+    try {
+      // Request permissions first
+      const hasPermissions = await requestPermissions();
+      if (!hasPermissions) {
+        return false;
+      }
+      
+      await BleClient.requestEnable();
+      const enabled = await BleClient.isEnabled();
+      setState(prev => ({ ...prev, isEnabled: enabled }));
+      
+      if (enabled) {
+        toast({
+          title: 'Bluetooth Ativado',
+          description: 'O Bluetooth foi ativado com sucesso',
+        });
+      }
+      
+      return enabled;
+    } catch (error) {
+      console.error('Error enabling Bluetooth:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível ativar o Bluetooth. Verifique as permissões.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  }, [requestPermissions]);
 
   // Start scanning
   const startScan = useCallback(async () => {

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Bluetooth as BluetoothIcon, Play, StopCircle, Power, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from '@/hooks/use-toast';
 
 const Bluetooth = () => {
   const navigate = useNavigate();
@@ -32,7 +33,14 @@ const Bluetooth = () => {
 
   const handleEnableBluetooth = async () => {
     if (!bluetooth.isEnabled) {
-      await bluetooth.requestEnable();
+      const enabled = await bluetooth.requestEnable();
+      if (!enabled) {
+        toast({
+          title: "Permissão Negada",
+          description: "Por favor, habilite as permissões Bluetooth nas configurações do dispositivo.",
+          variant: "destructive"
+        });
+      }
     }
   };
 
