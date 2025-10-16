@@ -136,6 +136,7 @@ bool ntpInitialized = false;
 
 bool emergencyMode = false;
 unsigned long lastOnlineTimestamp = 0;
+bool firstConnectionEstablished = false;
 unsigned long emergency_cycle_last_toggle_ms[3] = {0, 0, 0};
 
 unsigned long lastWifiStatusMs = 0;
@@ -149,7 +150,9 @@ void logMessage(const char* level, const char* msg) {
   snprintf(buf, sizeof(buf), "[%s] %lu %s", level, millis(), msg);
 
   Serial.println(buf);
-  SerialBT.println(buf);
+  if (SerialBT.hasClient()) {
+    SerialBT.println(buf);
+  }
 
   logBuffer[logIndex++ % LOG_CAPACITY] = String(buf);
   
@@ -628,6 +631,7 @@ void handleEmergencyMode() {
 
 // ----------------------------- BLUETOOTH HANDLERS ------------------------------------
 void publishDataToBluetooth() {
+  if (!SerialBT.hasClient()) return;
   if (!currentSensorData.valid) return;
 
   StaticJsonDocument<256> doc;
@@ -737,6 +741,10 @@ void loop() {
   unsigned long now = nowMs();
 
   if (WiFi.status() == WL_CONNECTED) {
+    if (!firstConnectionEstablished) {
+      firstConnectionEstablished = true;
+      logMessage("INFO", "Primeira conexão estabelecida.");
+    }
     lastOnlineTimestamp = now;
     if (emergencyMode) {
       emergencyMode = false;
@@ -744,7 +752,8 @@ void loop() {
       updateAutomaticRelays(); 
     }
   } else {
-    if (lastOnlineTimestamp > 0 && (now - lastOnlineTimestamp > EMERGENCY_MODE_TIMEOUT)) {
+    // Se já teve conexão uma vez E passou do timeout
+    if (firstConnectionEstablished && (now - lastOnlineTimestamp > EMERGENCY_MODE_TIMEOUT)) {
       if (!emergencyMode) {
         emergencyMode = true;
         logMessage("WARN", "Conexão perdida. Ativando modo de emergência.");
