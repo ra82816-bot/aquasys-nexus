@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -17,16 +17,16 @@ interface ESP32NetworkInfo {
 }
 
 export const ESP32WifiManager = () => {
-  const { publish, isConnected } = useMqttContext();
+  const { publish, isConnected, lastMessage } = useMqttContext();
   const [module1Network, setModule1Network] = useState<ESP32NetworkInfo>({
-    ssid: 'Carregando...',
+    ssid: 'Aguardando dados...',
     signal: 0,
     ip: '0.0.0.0',
     connected: false
   });
   
   const [module2Network, setModule2Network] = useState<ESP32NetworkInfo>({
-    ssid: 'Carregando...',
+    ssid: 'Aguardando dados...',
     signal: 0,
     ip: '0.0.0.0',
     connected: false
@@ -36,6 +36,31 @@ export const ESP32WifiManager = () => {
   const [newPassword1, setNewPassword1] = useState('');
   const [newSSID2, setNewSSID2] = useState('');
   const [newPassword2, setNewPassword2] = useState('');
+
+  // Escutar mensagens MQTT de status WiFi
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    const { topic, payload } = lastMessage;
+    
+    if (topic === 'aquasys/relay/status/wifi') {
+      try {
+        const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        
+        // Atualizar informações do módulo (assumindo módulo 1 por padrão)
+        setModule1Network({
+          ssid: data.ssid || 'Desconhecido',
+          signal: data.rssi || 0,
+          ip: data.ip || '0.0.0.0',
+          connected: true
+        });
+        
+        console.log('📡 Status WiFi recebido:', data);
+      } catch (error) {
+        console.error('Erro ao processar status WiFi:', error);
+      }
+    }
+  }, [lastMessage]);
 
   const getSignalStrength = (rssi: number): string => {
     if (rssi >= -50) return 'Excelente';
@@ -61,7 +86,8 @@ export const ESP32WifiManager = () => {
     }
 
     try {
-      await publish(`esp32/module${moduleNumber}/wifi/status`, { command: 'get_status' });
+      // Solicitar status ao módulo via tópico correto
+      await publish('aquasys/relay/wifi/get_status', { request: true });
       toast({
         title: "Solicitação enviada",
         description: `Atualizando status do Módulo ${moduleNumber}...`
@@ -88,6 +114,15 @@ export const ESP32WifiManager = () => {
       return;
     }
 
+    if (password.length < 8) {
+      toast({
+        title: "Erro",
+        description: "A senha deve ter no mínimo 8 caracteres",
+        variant: "destructive"
+      });
+      return;
+    }
+
     if (!isConnected) {
       toast({
         title: "Erro",
@@ -98,14 +133,15 @@ export const ESP32WifiManager = () => {
     }
 
     try {
-      await publish(`esp32/module${moduleNumber}/wifi/config`, {
+      // Enviar configuração via tópico correto do firmware
+      await publish('aquasys/relay/config/wifi', {
         ssid,
         password
       });
       
       toast({
-        title: "Configuração enviada",
-        description: `Módulo ${moduleNumber} tentará conectar à nova rede`
+        title: "⚙️ Configuração enviada",
+        description: `O módulo reiniciará e tentará conectar à rede "${ssid}"`
       });
 
       if (moduleNumber === 1) {
@@ -240,13 +276,14 @@ export const ESP32WifiManager = () => {
 
       <Card className="border-dashed">
         <CardHeader>
-          <CardTitle className="text-lg">Como funciona</CardTitle>
+          <CardTitle className="text-lg">ℹ️ Como funciona</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>• Esta interface gerencia as redes Wi-Fi dos <strong>módulos ESP32</strong>, não do seu smartphone</p>
           <p>• Use o botão de atualizar para obter o status atual de cada módulo</p>
-          <p>• Ao alterar SSID e senha, o módulo tentará reconectar à nova rede</p>
-          <p>• O módulo pode ficar temporariamente offline durante a reconexão</p>
+          <p>• Ao alterar SSID e senha, o módulo <strong>reiniciará automaticamente</strong></p>
+          <p>• O módulo ficará offline por ~30-60 segundos durante a reconexão</p>
+          <p>• Se a nova rede falhar, o módulo entrará em modo AP para reconfiguração manual</p>
         </CardContent>
       </Card>
     </div>

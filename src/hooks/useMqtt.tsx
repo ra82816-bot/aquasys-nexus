@@ -42,6 +42,7 @@ export const useMqtt = () => {
       const topics = [
         MQTT_CONFIG.topics.sensors,
         MQTT_CONFIG.topics.relayStatus,
+        'aquasys/relay/status/wifi',
       ];
       
       client.subscribe(topics, { qos: 1 }, (err) => {
