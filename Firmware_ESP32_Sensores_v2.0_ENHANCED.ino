@@ -1,5 +1,5 @@
 /*
- * AquaSys/HydroSmart - Módulo Sensor ESP32 v2.0 ENHANCED
+ * AquaSys/HydroSmart - Módulo Sensor ESP32 v2.1 ENHANCED
  * 
  * Funcionalidades:
  * - Leitura de sensores: pH, EC, temperatura do ar, umidade, temperatura da água
@@ -10,6 +10,8 @@
  * - Modo de emergência com comunicação Bluetooth
  * - Heartbeat para monitoramento de conexão
  * - Sincronização de dados não enviados
+ * - Portal Web para configuração WiFi
+ * - Filtro de média móvel implementado
  */
 
 #include <WiFi.h>
@@ -18,24 +20,31 @@
 #include <Preferences.h>
 #include <time.h>
 #include <esp_task_wdt.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include "BluetoothSerial.h"
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // ----------------------------- CONFIGURAÇÕES PRINCIPAIS -----------------------------
-#define FIRMWARE_VERSION "2.0-ENHANCED"
+#define FIRMWARE_VERSION "2.1-ENHANCED"
 #define DEVICE_ID "SENSOR-MODULE-01"
 
 // Pinos dos Sensores
 #define PH_SENSOR_PIN 34
 #define EC_SENSOR_PIN 35
-#define TEMP_AIR_PIN 32
-#define HUMIDITY_PIN 33
+#define DHT_PIN 32
+#define DHT_TYPE DHT22
 #define TEMP_WATER_PIN 25
 
-// Configuração WiFi
-#define WIFI_SSID "SEU_WIFI_SSID"
-#define WIFI_PASSWORD "SEU_WIFI_PASSWORD"
+// Configuração WiFi (Portal Web)
+#define AP_SSID "AquaSys-Setup"
+#define AP_PASSWORD "aquasys123"
 #define WIFI_RECONNECT_INTERVAL 30000
 #define WIFI_MAX_RETRY 5
+#define WIFI_CONFIG_TIMEOUT 300000  // 5 minutos
+#define DNS_PORT 53
 
 // Configuração MQTT
 #define MQTT_BROKER "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
@@ -58,8 +67,9 @@
 #define SENSOR_READ_INTERVAL 5000
 #define MQTT_PUBLISH_INTERVAL 10000
 #define HEARTBEAT_INTERVAL 30000
-#define DATA_VALIDATION_SAMPLES 3
+#define DATA_VALIDATION_SAMPLES 5
 #define EMERGENCY_MODE_TIMEOUT 60000
+#define INITIAL_EMERGENCY_TIMEOUT 120000  // 2 minutos para primeira conexão
 
 // Buffer MQTT
 #define MQTT_BUFFER_SIZE 20
@@ -96,6 +106,30 @@ WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 BluetoothSerial SerialBT;
 Preferences preferences;
+WebServer webServer(80);
+DNSServer dnsServer;
+DHT dht(DHT_PIN, DHT_TYPE);
+OneWire oneWire(TEMP_WATER_PIN);
+DallasTemperature waterTempSensor(&oneWire);
+
+// Calibração pH (ajustar conforme calibração)
+#define PH_VOLTAGE_4 2.03   // Voltagem lida no pH 4
+#define PH_VOLTAGE_7 1.50   // Voltagem lida no pH 7
+#define PH_VALUE_4 4.0
+#define PH_VALUE_7 7.0
+
+// Calibração EC (ajustar conforme calibração)
+#define EC_VOLTAGE_LOW 0.5   // Voltagem em solução baixa EC
+#define EC_VALUE_LOW 500.0   // Valor EC conhecido (uS/cm)
+#define EC_VOLTAGE_HIGH 2.5  // Voltagem em solução alta EC
+#define EC_VALUE_HIGH 2000.0 // Valor EC conhecido (uS/cm)
+
+// Credenciais WiFi (armazenadas na Preferences)
+String wifiSSID = "";
+String wifiPassword = "";
+bool wifiConfigured = false;
+bool portalActive = false;
+unsigned long portalStartTime = 0;
 
 SensorData currentSensorData;
 SensorData sensorHistory[DATA_VALIDATION_SAMPLES];
@@ -151,10 +185,119 @@ void resetWatchdog() {
   esp_task_wdt_reset();
 }
 
+// ----------------------------- PORTAL WEB ------------------------------------------------
+void handleRoot() {
+  String html = R"(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>AquaSys - Configuração WiFi</title>
+  <style>
+    body { font-family: Arial; margin: 20px; background: #f0f0f0; }
+    .container { max-width: 400px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+    h1 { color: #2196F3; text-align: center; }
+    input { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
+    button { width: 100%; padding: 12px; background: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #0b7dda; }
+    .info { background: #e3f2fd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <div class='container'>
+    <h1>AquaSys Setup</h1>
+    <div class='info'>Device ID: )" + String(DEVICE_ID) + R"(</div>
+    <div class='info'>Firmware: )" + String(FIRMWARE_VERSION) + R"(</div>
+    <form action='/save' method='POST'>
+      <input type='text' name='ssid' placeholder='Nome da Rede WiFi' required>
+      <input type='password' name='password' placeholder='Senha WiFi' required>
+      <button type='submit'>Salvar e Conectar</button>
+    </form>
+  </div>
+</body>
+</html>
+  )";
+  webServer.send(200, "text/html", html);
+}
+
+void handleSave() {
+  wifiSSID = webServer.arg("ssid");
+  wifiPassword = webServer.arg("password");
+  
+  preferences.begin("wifi", false);
+  preferences.putString("ssid", wifiSSID);
+  preferences.putString("password", wifiPassword);
+  preferences.end();
+  
+  String html = R"(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Configuração Salva</title>
+  <style>
+    body { font-family: Arial; margin: 20px; background: #f0f0f0; text-align: center; }
+    .container { max-width: 400px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+    h1 { color: #4CAF50; }
+  </style>
+</head>
+<body>
+  <div class='container'>
+    <h1>✓ Configuração Salva!</h1>
+    <p>Conectando à rede WiFi...</p>
+    <p>O dispositivo irá reiniciar em 3 segundos.</p>
+  </div>
+</body>
+</html>
+  )";
+  
+  webServer.send(200, "text/html", html);
+  delay(3000);
+  ESP.restart();
+}
+
+void setupWebPortal() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  
+  char buf[100];
+  snprintf(buf, sizeof(buf), "Portal Web iniciado. IP: %s", WiFi.softAPIP().toString().c_str());
+  logMessage("INFO", buf);
+  
+  dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+  
+  webServer.on("/", handleRoot);
+  webServer.on("/save", HTTP_POST, handleSave);
+  webServer.onNotFound(handleRoot);
+  webServer.begin();
+  
+  portalActive = true;
+  portalStartTime = millis();
+}
+
 // ----------------------------- WIFI --------------------------------------------------
+void loadWiFiCredentials() {
+  preferences.begin("wifi", true);
+  wifiSSID = preferences.getString("ssid", "");
+  wifiPassword = preferences.getString("password", "");
+  preferences.end();
+  
+  wifiConfigured = (wifiSSID.length() > 0 && wifiPassword.length() > 0);
+}
+
 void setupWiFi() {
+  loadWiFiCredentials();
+  
+  if (!wifiConfigured) {
+    logMessage("WARN", "WiFi não configurado. Iniciando portal web...");
+    setupWebPortal();
+    return;
+  }
+  
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
   
   logMessage("INFO", "Conectando ao WiFi...");
   
@@ -174,12 +317,24 @@ void setupWiFi() {
     logMessage("INFO", buf);
   } else {
     wifiConnected = false;
-    logMessage("ERROR", "Falha ao conectar WiFi");
+    logMessage("ERROR", "Falha ao conectar WiFi. Iniciando portal web...");
+    setupWebPortal();
   }
 }
 
 void checkWiFi() {
   unsigned long now = millis();
+  
+  if (portalActive) {
+    dnsServer.processNextRequest();
+    webServer.handleClient();
+    
+    if (now - portalStartTime > WIFI_CONFIG_TIMEOUT) {
+      logMessage("ERROR", "Timeout do portal de configuração. Reiniciando...");
+      ESP.restart();
+    }
+    return;
+  }
   
   if (now - lastWifiCheck < WIFI_RECONNECT_INTERVAL) return;
   lastWifiCheck = now;
@@ -191,9 +346,10 @@ void checkWiFi() {
     if (wifiRetryCount <= WIFI_MAX_RETRY) {
       logMessage("WARN", "WiFi desconectado. Tentando reconectar...");
       WiFi.disconnect();
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
     } else {
-      logMessage("ERROR", "WiFi: máximo de tentativas atingido");
+      logMessage("ERROR", "WiFi: máximo de tentativas atingido. Reiniciando portal...");
+      setupWebPortal();
     }
   } else {
     if (!wifiConnected) {
@@ -300,35 +456,56 @@ void publishMqtt(const String& topic, const String& payload) {
 float readPhSensor() {
   int rawValue = analogRead(PH_SENSOR_PIN);
   float voltage = rawValue * (3.3 / 4095.0);
-  float ph = mapFloat(voltage, 0.0, 3.3, 0.0, 14.0);
+  
+  // Calibração linear usando dois pontos (pH 4 e pH 7)
+  float slope = (PH_VALUE_7 - PH_VALUE_4) / (PH_VOLTAGE_7 - PH_VOLTAGE_4);
+  float ph = PH_VALUE_7 + slope * (voltage - PH_VOLTAGE_7);
+  
   return ph;
 }
 
-float readEcSensor() {
+float readEcSensor(float waterTemp) {
   int rawValue = analogRead(EC_SENSOR_PIN);
   float voltage = rawValue * (3.3 / 4095.0);
-  float ec = mapFloat(voltage, 0.0, 3.3, 0.0, 5000.0);
+  
+  // Calibração linear usando dois pontos
+  float slope = (EC_VALUE_HIGH - EC_VALUE_LOW) / (EC_VOLTAGE_HIGH - EC_VOLTAGE_LOW);
+  float ec = EC_VALUE_LOW + slope * (voltage - EC_VOLTAGE_LOW);
+  
+  // Compensação de temperatura (baseada em 25°C)
+  float tempCoefficient = 1.0 + 0.02 * (waterTemp - 25.0);
+  ec = ec / tempCoefficient;
+  
   return ec;
 }
 
 float readAirTemperature() {
-  int rawValue = analogRead(TEMP_AIR_PIN);
-  float voltage = rawValue * (3.3 / 4095.0);
-  float temp = mapFloat(voltage, 0.0, 3.3, -10.0, 50.0);
+  float temp = dht.readTemperature();
+  if (isnan(temp)) {
+    logMessage("WARN", "Falha ao ler temperatura do DHT22");
+    return -999.0;
+  }
   return temp;
 }
 
 float readHumidity() {
-  int rawValue = analogRead(HUMIDITY_PIN);
-  float voltage = rawValue * (3.3 / 4095.0);
-  float humidity = mapFloat(voltage, 0.0, 3.3, 0.0, 100.0);
+  float humidity = dht.readHumidity();
+  if (isnan(humidity)) {
+    logMessage("WARN", "Falha ao ler umidade do DHT22");
+    return -999.0;
+  }
   return humidity;
 }
 
 float readWaterTemperature() {
-  int rawValue = analogRead(TEMP_WATER_PIN);
-  float voltage = rawValue * (3.3 / 4095.0);
-  float temp = mapFloat(voltage, 0.0, 3.3, 0.0, 40.0);
+  waterTempSensor.requestTemperatures();
+  float temp = waterTempSensor.getTempCByIndex(0);
+  
+  if (temp == DEVICE_DISCONNECTED_C || temp < -50.0) {
+    logMessage("WARN", "Falha ao ler temperatura da água (DS18B20)");
+    return -999.0;
+  }
+  
   return temp;
 }
 
@@ -336,11 +513,14 @@ void readSensors() {
   SensorData data;
   data.timestamp = millis();
   
+  // Ler temperatura da água primeiro (necessária para compensação EC)
+  data.waterTemp = readWaterTemperature();
+  
+  // Ler demais sensores
   data.ph = readPhSensor();
-  data.ec = readEcSensor();
+  data.ec = readEcSensor(data.waterTemp);
   data.airTemp = readAirTemperature();
   data.humidity = readHumidity();
-  data.waterTemp = readWaterTemperature();
   
   // Validação individual
   bool phValid = isValidSensorValue(data.ph, PH_MIN, PH_MAX);
@@ -361,7 +541,30 @@ void readSensors() {
   
   // Aplicar filtro de média móvel
   if (data.valid) {
-    currentSensorData = data;
+    // Calcular média das últimas leituras válidas
+    float phSum = 0, ecSum = 0, airTempSum = 0, humiditySum = 0, waterTempSum = 0;
+    int validCount = 0;
+    
+    for (int i = 0; i < DATA_VALIDATION_SAMPLES; i++) {
+      if (sensorHistory[i].valid) {
+        phSum += sensorHistory[i].ph;
+        ecSum += sensorHistory[i].ec;
+        airTempSum += sensorHistory[i].airTemp;
+        humiditySum += sensorHistory[i].humidity;
+        waterTempSum += sensorHistory[i].waterTemp;
+        validCount++;
+      }
+    }
+    
+    if (validCount > 0) {
+      currentSensorData.ph = phSum / validCount;
+      currentSensorData.ec = ecSum / validCount;
+      currentSensorData.airTemp = airTempSum / validCount;
+      currentSensorData.humidity = humiditySum / validCount;
+      currentSensorData.waterTemp = waterTempSum / validCount;
+      currentSensorData.timestamp = data.timestamp;
+      currentSensorData.valid = true;
+    }
   }
 }
 
@@ -484,11 +687,20 @@ void checkEmergencyMode() {
       logMessage("INFO", "Conexão restaurada. Saindo do modo de emergência");
     }
   } else {
+    // Ativar modo de emergência se:
+    // 1. Já teve conexão e perdeu por mais de EMERGENCY_MODE_TIMEOUT
+    // 2. Nunca conseguiu conectar e passou do INITIAL_EMERGENCY_TIMEOUT
+    bool shouldActivateEmergency = false;
+    
     if (firstConnectionEstablished && (now - lastOnlineTimestamp > EMERGENCY_MODE_TIMEOUT)) {
-      if (!emergencyMode) {
-        emergencyMode = true;
-        logMessage("WARN", "Conexão perdida. Ativando modo de emergência");
-      }
+      shouldActivateEmergency = true;
+    } else if (!firstConnectionEstablished && now > INITIAL_EMERGENCY_TIMEOUT) {
+      shouldActivateEmergency = true;
+    }
+    
+    if (shouldActivateEmergency && !emergencyMode) {
+      emergencyMode = true;
+      logMessage("WARN", "Ativando modo de emergência (comunicação via Bluetooth)");
     }
   }
 }
@@ -528,6 +740,10 @@ void setup() {
   for (int i = 0; i < DATA_VALIDATION_SAMPLES; i++) {
     sensorHistory[i].valid = false;
   }
+  
+  // Inicializar sensores
+  dht.begin();
+  waterTempSensor.begin();
   
   // Inicializar conectividade
   setupWiFi();
@@ -589,6 +805,4 @@ void loop() {
   
   // Processar comandos Bluetooth
   handleBluetoothCommands();
-  
-  delay(100);
 }
