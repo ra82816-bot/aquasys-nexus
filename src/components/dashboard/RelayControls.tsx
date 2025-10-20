@@ -75,10 +75,11 @@ export const RelayControls = () => {
 
       if (error) throw error;
 
-      console.log('Configurações dos relés carregadas:', data);
+      console.log('✅ Configurações dos relés carregadas:', data);
+      console.log('📋 Resumo dos modos:', data?.map(c => ({ relay: c.relay_index, mode: c.mode, name: c.name })));
       setRelayConfigs(data || []);
     } catch (error) {
-      console.error("Erro ao buscar configurações dos relés:", error);
+      console.error("❌ Erro ao buscar configurações dos relés:", error);
       toast({
         title: "Erro",
         description: "Não foi possível carregar as configurações dos relés",

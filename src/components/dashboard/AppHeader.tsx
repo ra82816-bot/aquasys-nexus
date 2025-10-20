@@ -27,8 +27,7 @@ export const AppHeader = ({ onLogout, onNavigate, currentTab, onTabChange }: App
     { id: "relays", label: "Relés", icon: Settings, isDashboardTab: true },
     { id: "plants", label: "Plantas", icon: Sprout, route: "/plants" },
     { id: "camera", label: "Câmera", icon: Camera, route: "/camera" },
-    { id: "bluetooth", label: "Bluetooth", icon: Bluetooth, route: "/bluetooth" },
-    { id: "wifi", label: "WiFi", icon: Wifi, route: "/wifi" },
+    { id: "connections", label: "Conexões", icon: Wifi, route: "/connections" },
     { id: "community", label: "Comunidade", icon: Users, route: "/community" },
   ];
 
