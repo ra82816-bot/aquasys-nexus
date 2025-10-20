@@ -249,12 +249,12 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
                   <SelectItem value="hydroponics">Hidroponia (NFT)</SelectItem>
                   <SelectItem value="dwc">DWC (Deep Water Culture)</SelectItem>
                   <SelectItem value="soil">Solo Orgânico</SelectItem>
                   <SelectItem value="coco">Fibra de Coco</SelectItem>
                   <SelectItem value="perlite">Perlita/Vermiculita</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -269,11 +269,11 @@ export const CreatePlantDialog = ({ open, onOpenChange, userId, onSuccess }: Cre
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
                   <SelectItem value="18/6">18/6 (Vegetativo)</SelectItem>
                   <SelectItem value="12/12">12/12 (Floração)</SelectItem>
                   <SelectItem value="20/4">20/4 (Vegetativo intenso)</SelectItem>
                   <SelectItem value="24/0">24/0 (Contínuo)</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                 </SelectContent>
               </Select>
             </div>

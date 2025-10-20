@@ -135,6 +135,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   };
 
   const getModeLabel = (mode: string) => {
+    if (!mode) return 'Carregando...';
     const labels: { [key: string]: string } = {
       unused: 'Não usado',
       manual: 'Manual',

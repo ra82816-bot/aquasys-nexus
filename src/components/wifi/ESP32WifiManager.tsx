@@ -43,19 +43,26 @@ export const ESP32WifiManager = () => {
 
     const { topic, payload } = lastMessage;
     
-    if (topic === 'aquasys/relay/status/wifi') {
+    // Escutar múltiplos tópicos possíveis
+    if (topic === 'aquasys/relay/status/wifi' || topic === 'aquasys/relay/wifi/status') {
       try {
         const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
         
-        // Atualizar informações do módulo (assumindo módulo 1 por padrão)
-        setModule1Network({
-          ssid: data.ssid || 'Desconhecido',
-          signal: data.rssi || 0,
-          ip: data.ip || '0.0.0.0',
-          connected: true
-        });
+        console.log('📡 Status WiFi recebido no tópico:', topic, data);
         
-        console.log('📡 Status WiFi recebido:', data);
+        const moduleNumber = data.module || 1;
+        const networkInfo = {
+          ssid: data.ssid || data.network || 'Desconhecido',
+          signal: data.rssi || data.signal || 0,
+          ip: data.ip || data.ip_address || '0.0.0.0',
+          connected: data.connected !== undefined ? data.connected : true
+        };
+        
+        if (moduleNumber === 1) {
+          setModule1Network(networkInfo);
+        } else if (moduleNumber === 2) {
+          setModule2Network(networkInfo);
+        }
       } catch (error) {
         console.error('Erro ao processar status WiFi:', error);
       }
@@ -86,14 +93,18 @@ export const ESP32WifiManager = () => {
     }
 
     try {
+      console.log(`📤 Solicitando status WiFi do Módulo ${moduleNumber}...`);
+      
       // Adicionar timeout de segurança
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Timeout')), 5000)
       );
       
+      // Publicar no tópico correto
       const publishPromise = publish('aquasys/relay/wifi/get_status', { 
         module: moduleNumber,
-        request: true 
+        request: true,
+        timestamp: Date.now()
       });
 
       await Promise.race([publishPromise, timeoutPromise]);
