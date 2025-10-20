@@ -47,12 +47,20 @@ export default function Camera() {
   }, []);
 
   useEffect(() => {
-    // Atualizar stream automaticamente a cada 2 segundos
+    // Carregar o stream inicial se houver URL salva
+    const savedUrl = sessionStorage.getItem('camera_url') || localStorage.getItem("esp32cam_url");
+    if (savedUrl && customUrl) {
+      handleRefresh();
+    }
+  }, []);
+
+  useEffect(() => {
+    // Atualizar stream automaticamente a cada 3 segundos
     const interval = setInterval(() => {
       if (isConnected && !isLoading) {
         handleRefresh();
       }
-    }, 2000);
+    }, 3000);
     
     return () => clearInterval(interval);
   }, [isConnected, isLoading]);
@@ -76,6 +84,12 @@ export default function Camera() {
       const user = sessionStorage.getItem('camera_username') || username;
       const pass = sessionStorage.getItem('camera_password') || password;
 
+      if (!url) {
+        throw new Error('URL da câmera não configurada');
+      }
+
+      console.log('Buscando stream da câmera:', url);
+
       // Fazer requisição via proxy
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/camera-proxy`, {
         method: 'POST',
@@ -86,25 +100,30 @@ export default function Camera() {
         body: JSON.stringify({ url, username: user, password: pass }),
       });
 
-      if (response.ok) {
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        
-        if (imgRef.current) {
-          // Revogar URL anterior para evitar vazamento de memória
-          if (imgRef.current.src.startsWith('blob:')) {
-            URL.revokeObjectURL(imgRef.current.src);
-          }
-          imgRef.current.src = objectUrl;
-        }
-      } else {
-        throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      
+      if (imgRef.current) {
+        // Revogar URL anterior para evitar vazamento de memória
+        if (imgRef.current.src.startsWith('blob:')) {
+          URL.revokeObjectURL(imgRef.current.src);
+        }
+        imgRef.current.src = objectUrl;
+      }
+      
+      setIsConnected(true);
+      console.log('Stream carregado com sucesso');
     } catch (error) {
       console.error('Erro ao atualizar câmera:', error);
+      setIsConnected(false);
       toast({
         title: "Erro ao conectar",
-        description: "Verifique a URL e as credenciais",
+        description: error instanceof Error ? error.message : "Verifique a URL e as credenciais",
         variant: "destructive"
       });
     } finally {
@@ -316,11 +335,8 @@ export default function Camera() {
                   
                   <img
                     ref={imgRef}
-                    src={cameraUrl}
                     alt="ESP32-CAM Stream"
                     className="w-full h-full object-contain"
-                    onLoad={handleImageLoad}
-                    onError={handleImageError}
                     style={{ display: isConnected ? 'block' : 'none' }}
                   />
                 </div>
