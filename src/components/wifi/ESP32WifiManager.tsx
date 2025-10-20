@@ -86,18 +86,39 @@ export const ESP32WifiManager = () => {
     }
 
     try {
-      // Solicitar status ao módulo via tópico correto
-      await publish('aquasys/relay/wifi/get_status', { request: true });
-      toast({
-        title: "Solicitação enviada",
-        description: `Atualizando status do Módulo ${moduleNumber}...`
+      // Adicionar timeout de segurança
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 5000)
+      );
+      
+      const publishPromise = publish('aquasys/relay/wifi/get_status', { 
+        module: moduleNumber,
+        request: true 
       });
-    } catch (error) {
+
+      await Promise.race([publishPromise, timeoutPromise]);
+      
       toast({
-        title: "Erro",
-        description: "Falha ao solicitar status de rede",
-        variant: "destructive"
+        title: "✓ Solicitação enviada",
+        description: `Aguardando resposta do Módulo ${moduleNumber}...`,
+        duration: 3000
       });
+    } catch (error: any) {
+      console.error('Erro ao solicitar status:', error);
+      
+      if (error.message === 'Timeout') {
+        toast({
+          title: "⚠️ Sem resposta",
+          description: "O módulo pode estar offline ou não responde",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Erro",
+          description: "Falha ao solicitar status de rede",
+          variant: "destructive"
+        });
+      }
     }
   };
 

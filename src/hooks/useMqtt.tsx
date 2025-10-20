@@ -139,16 +139,21 @@ export const useMqtt = () => {
     try {
       console.log('💾 Salvando dados de sensores no banco...');
       
+      // Mapear campos do firmware (temperature/waterTemp) para o formato esperado
+      const sensorPayload = {
+        ph: data.ph,
+        ec: data.ec,
+        // Aceitar: temperature (firmware v2.5), airTemp (legado), air_temp (banco)
+        airTemp: data.temperature || data.airTemp || data.air_temp,
+        humidity: data.humidity,
+        // Aceitar: waterTemp (firmware v2.5), water_temp (banco)
+        waterTemp: data.waterTemp || data.water_temp
+      };
+      
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
           action: 'process_sensors',
-          data: {
-            ph: data.ph,
-            ec: data.ec,
-            airTemp: data.air_temp || data.airTemp,
-            humidity: data.humidity,
-            waterTemp: data.water_temp || data.waterTemp
-          }
+          data: sensorPayload
         }
       });
 

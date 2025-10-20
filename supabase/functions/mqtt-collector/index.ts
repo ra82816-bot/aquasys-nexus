@@ -19,8 +19,12 @@ serve(async (req) => {
     const { action, data } = await req.json();
 
     if (action === 'process_sensors') {
+      // Mapear campos do firmware (temperature/waterTemp) para banco (air_temp/water_temp)
+      const airTemp = data.airTemp || data.temperature;
+      const waterTemp = data.waterTemp || data.water_temp;
+      
       // Validar campos obrigatórios dos sensores
-      if (!data.ph || !data.ec || !data.airTemp || !data.humidity || !data.waterTemp) {
+      if (!data.ph || !data.ec || !airTemp || !data.humidity || !waterTemp) {
         console.error('Dados de sensores inválidos:', data);
         
         await supabase.from('event_logs').insert({
@@ -40,9 +44,9 @@ serve(async (req) => {
         .insert({
           ph: data.ph,
           ec: data.ec,
-          air_temp: data.airTemp,
+          air_temp: airTemp,
           humidity: data.humidity,
-          water_temp: data.waterTemp
+          water_temp: waterTemp
         });
 
       if (insertError) {
