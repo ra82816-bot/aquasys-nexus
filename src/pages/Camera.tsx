@@ -40,17 +40,22 @@ export default function Camera() {
       setPassword(savedPassword);
     }
     
-    // Construir URL completa com autenticação se necessário
+    // Construir URL do proxy se necessário
     if (savedUrl) {
-      buildAuthenticatedUrl(savedUrl, savedUsername || "admin", savedPassword || "");
+      buildProxyUrl(savedUrl, savedUsername || "admin", savedPassword || "");
     }
   }, []);
 
   useEffect(() => {
-    checkConnection();
-    const interval = setInterval(checkConnection, 10000); // Verifica a cada 10s
+    // Atualizar stream automaticamente a cada 2 segundos
+    const interval = setInterval(() => {
+      if (isConnected && !isLoading) {
+        handleRefresh();
+      }
+    }, 2000);
+    
     return () => clearInterval(interval);
-  }, [cameraUrl]);
+  }, [isConnected, isLoading]);
 
   const checkConnection = () => {
     if (imgRef.current) {
@@ -63,30 +68,60 @@ export default function Camera() {
     }
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsLoading(true);
-    if (imgRef.current) {
-      const timestamp = new Date().getTime();
-      imgRef.current.src = `${cameraUrl}?t=${timestamp}`;
+    
+    try {
+      const url = sessionStorage.getItem('camera_url') || customUrl;
+      const user = sessionStorage.getItem('camera_username') || username;
+      const pass = sessionStorage.getItem('camera_password') || password;
+
+      // Fazer requisição via proxy
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/camera-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ url, username: user, password: pass }),
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        
+        if (imgRef.current) {
+          // Revogar URL anterior para evitar vazamento de memória
+          if (imgRef.current.src.startsWith('blob:')) {
+            URL.revokeObjectURL(imgRef.current.src);
+          }
+          imgRef.current.src = objectUrl;
+        }
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar câmera:', error);
+      toast({
+        title: "Erro ao conectar",
+        description: "Verifique a URL e as credenciais",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setTimeout(() => setIsLoading(false), 1000);
   };
 
-  const buildAuthenticatedUrl = (url: string, user: string, pass: string) => {
-    try {
-      const urlObj = new URL(url);
-      
-      // Se houver usuário e senha, adicionar na URL
-      if (user && pass) {
-        urlObj.username = user;
-        urlObj.password = pass;
-      }
-      
-      setCameraUrl(urlObj.toString());
-    } catch (error) {
-      console.error("Erro ao construir URL:", error);
-      setCameraUrl(url);
-    }
+  const buildProxyUrl = (url: string, user: string, pass: string) => {
+    // Usar a Edge Function como proxy para evitar problemas de CORS
+    const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/camera-proxy`;
+    
+    // Armazenar as credenciais para uso posterior
+    sessionStorage.setItem('camera_url', url);
+    sessionStorage.setItem('camera_username', user);
+    sessionStorage.setItem('camera_password', pass);
+    
+    setCameraUrl(proxyUrl);
   };
 
   const handleSaveUrl = () => {
@@ -104,8 +139,8 @@ export default function Camera() {
     localStorage.setItem("esp32cam_username", username);
     localStorage.setItem("esp32cam_password", password);
     
-    // Construir URL com autenticação
-    buildAuthenticatedUrl(customUrl, username, password);
+    // Construir URL do proxy
+    buildProxyUrl(customUrl, username, password);
     
     setShowSettings(false);
     

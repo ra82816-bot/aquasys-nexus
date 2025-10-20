@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.knowledge-search]
 verify_jwt = false
+
+[functions.camera-proxy]
+verify_jwt = false
