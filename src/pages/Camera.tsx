@@ -19,15 +19,30 @@ export default function Camera() {
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [customUrl, setCustomUrl] = useState("");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
   const imgRef = useRef<HTMLImageElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Carregar URL salva do localStorage
+    // Carregar configurações salvas do localStorage
     const savedUrl = localStorage.getItem("esp32cam_url");
+    const savedUsername = localStorage.getItem("esp32cam_username");
+    const savedPassword = localStorage.getItem("esp32cam_password");
+    
     if (savedUrl) {
-      setCameraUrl(savedUrl);
       setCustomUrl(savedUrl);
+    }
+    if (savedUsername) {
+      setUsername(savedUsername);
+    }
+    if (savedPassword) {
+      setPassword(savedPassword);
+    }
+    
+    // Construir URL completa com autenticação se necessário
+    if (savedUrl) {
+      buildAuthenticatedUrl(savedUrl, savedUsername || "admin", savedPassword || "");
     }
   }, []);
 
@@ -57,6 +72,23 @@ export default function Camera() {
     setTimeout(() => setIsLoading(false), 1000);
   };
 
+  const buildAuthenticatedUrl = (url: string, user: string, pass: string) => {
+    try {
+      const urlObj = new URL(url);
+      
+      // Se houver usuário e senha, adicionar na URL
+      if (user && pass) {
+        urlObj.username = user;
+        urlObj.password = pass;
+      }
+      
+      setCameraUrl(urlObj.toString());
+    } catch (error) {
+      console.error("Erro ao construir URL:", error);
+      setCameraUrl(url);
+    }
+  };
+
   const handleSaveUrl = () => {
     if (!customUrl.trim()) {
       toast({
@@ -67,13 +99,19 @@ export default function Camera() {
       return;
     }
 
-    setCameraUrl(customUrl);
+    // Salvar configurações
     localStorage.setItem("esp32cam_url", customUrl);
+    localStorage.setItem("esp32cam_username", username);
+    localStorage.setItem("esp32cam_password", password);
+    
+    // Construir URL com autenticação
+    buildAuthenticatedUrl(customUrl, username, password);
+    
     setShowSettings(false);
     
     toast({
-      title: "URL salva",
-      description: "Configuração da câmera atualizada"
+      title: "Configurações salvas",
+      description: "Câmera configurada com sucesso"
     });
     
     handleRefresh();
@@ -142,17 +180,47 @@ export default function Camera() {
                 <div>
                   <Label htmlFor="cameraUrl">URL da Câmera ESP32-CAM</Label>
                   <p className="text-xs text-muted-foreground mb-2">
-                    Exemplos: http://192.168.1.100/stream ou http://esp32cam.local/stream
+                    Exemplo: http://192.168.1.100/stream (sem incluir usuário e senha)
                   </p>
                   <Input
                     id="cameraUrl"
                     value={customUrl}
                     onChange={(e) => setCustomUrl(e.target.value)}
-                    placeholder="http://esp32cam.local/stream"
+                    placeholder="http://192.168.1.100/stream"
                   />
                 </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="username">Usuário</Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Padrão: admin
+                    </p>
+                    <Input
+                      id="username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="admin"
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="password">Senha</Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Deixe vazio se não houver
+                    </p>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+                
                 <div className="flex gap-2">
-                  <Button onClick={handleSaveUrl}>Salvar</Button>
+                  <Button onClick={handleSaveUrl}>Salvar Configurações</Button>
                   <Button variant="outline" onClick={() => setShowSettings(false)}>
                     Cancelar
                   </Button>
@@ -241,8 +309,9 @@ export default function Camera() {
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground space-y-2">
               <p>• Certifique-se de que o módulo ESP32-CAM está ligado e conectado à mesma rede Wi-Fi</p>
-              <p>• Configure a URL correta da câmera nas configurações</p>
-              <p>• O stream pode usar MJPEG (Motion JPEG) ou snapshots periódicos</p>
+              <p>• Configure a URL base da câmera (ex: http://192.168.1.100/stream)</p>
+              <p>• Adicione usuário e senha se a câmera estiver protegida</p>
+              <p>• O usuário padrão da maioria das ESP32-CAM é "admin"</p>
               <p>• Use o botão de atualizar para forçar um novo carregamento do stream</p>
             </CardContent>
           </Card>
