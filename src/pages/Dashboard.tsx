@@ -9,6 +9,7 @@ import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
+import { SensorCalibration } from "@/components/dashboard/SensorCalibration";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/dashboard/AppHeader";
 import { MqttFooter } from "@/components/dashboard/MqttFooter";
@@ -137,6 +138,7 @@ const Dashboard = () => {
               <span className="text-base sm:text-2xl">Monitoramento em Tempo Real</span>
             </h2>
             <SensorCard latestReading={latestReading} />
+            <SensorCalibration />
           </TabsContent>
 
           <TabsContent value="charts" className="space-y-3 sm:space-y-4 mt-0">
