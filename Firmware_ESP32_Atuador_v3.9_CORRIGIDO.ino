@@ -192,8 +192,13 @@ void setup() {
   timeClient.update();
   Serial.printf("[INFO] %lu NTP sincronizado\n", millis());
   
-  // Watchdog
-  esp_task_wdt_init(60, true);
+  // Watchdog - API atualizada para ESP32 Arduino Core 3.x
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = 60000,
+    .idle_core_mask = 0,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
   Serial.printf("[INFO] %lu Task WDT reconfigurado (60s)\n", millis());
   
@@ -415,7 +420,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
           relayConfigs[idx].cycleOnMs = cfg["cycleOnMs"] | 60000UL;
           relayConfigs[idx].cycleOffMs = cfg["cycleOffMs"] | 60000UL;
           relayConfigs[idx].enabled = cfg["enabled"] | false;
-          relayConfigs[idx].name = cfg["name"] | String("Relé ") + String(relay);
+          
+          // Corrigido: evita problema com StringSumHelper do ArduinoJson
+          if (cfg.containsKey("name")) {
+            relayConfigs[idx].name = cfg["name"].as<String>();
+          } else {
+            relayConfigs[idx].name = String("Relé ") + String(relay);
+          }
           saveRelayConfig(idx);
           Serial.printf("[CONFIG] Relé %d configurado\n", relay);
           publishRelayStatus();
