@@ -406,37 +406,85 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   
   // Comandos de relé
   else if (topicStr == MQTT_TOPIC_COMMAND_SUB) {
-    // Formato: {"relay": 1, "state": true} OU {"relay1": true, "relay2": false}
+    // ✅ FORMATO 1: {"command":"manual_override","payload":{"relay":2,"state":"on"}}
+    if (doc.containsKey("command") && doc["command"] == "manual_override") {
+      JsonObject payload = doc["payload"];
+      if (payload.containsKey("relay") && payload.containsKey("state")) {
+        int relay = payload["relay"];
+        String stateStr = payload["state"].as<String>();
+        bool state = (stateStr == "on" || stateStr == "true" || stateStr == "1");
+        
+        if (relay >= 1 && relay <= 8) {
+          manual_override[relay - 1] = true;
+          updateRelay(relay - 1, state);
+          Serial.printf("[CMD] Relé %d -> %s (MANUAL OVERRIDE)\n", relay, state ? "LIGADO" : "DESLIGADO");
+          publishRelayStatus(); // Publicar status imediatamente
+        }
+      }
+    }
     
-    if (doc.containsKey("relay") && doc.containsKey("state")) {
+    // ✅ FORMATO 2: {"relay": 1, "state": true}
+    else if (doc.containsKey("relay") && doc.containsKey("state")) {
       int relay = doc["relay"];
       bool state = doc["state"];
       
       if (relay >= 1 && relay <= 8) {
         manual_override[relay - 1] = true;
         updateRelay(relay - 1, state);
-        Serial.printf("[CMD] Relé %d -> %s (MANUAL)\n", relay, state ? "ON" : "OFF");
+        Serial.printf("[CMD] Relé %d -> %s (MANUAL)\n", relay, state ? "LIGADO" : "DESLIGADO");
+        publishRelayStatus();
       }
     }
+    
+    // ✅ FORMATO 3: {"relay1": true, "relay2": false, ...}
     else {
-      // Formato alternativo: relay1, relay2, etc.
+      bool anyUpdate = false;
       for (int i = 0; i < 8; i++) {
         String key = "relay" + String(i + 1);
         if (doc.containsKey(key)) {
           bool state = doc[key];
           manual_override[i] = true;
           updateRelay(i, state);
-          Serial.printf("[CMD] Relé %d -> %s (MANUAL)\n", i + 1, state ? "ON" : "OFF");
+          Serial.printf("[CMD] Relé %d -> %s (MANUAL)\n", i + 1, state ? "LIGADO" : "DESLIGADO");
+          anyUpdate = true;
         }
+      }
+      if (anyUpdate) publishRelayStatus();
+    }
+    
+    // ✅ Comando de configuração: {"relay":2,"config":{...}}
+    if (doc.containsKey("config")) {
+      int relay = doc["relay"];
+      if (relay >= 1 && relay <= 8) {
+        JsonObject cfg = doc["config"];
+        int idx = relay - 1;
+        
+        if (cfg.containsKey("mode")) configs[idx].mode = (RelayMode)cfg["mode"].as<int>();
+        if (cfg.containsKey("led_on_hour")) configs[idx].led_on_hour = cfg["led_on_hour"];
+        if (cfg.containsKey("led_off_hour")) configs[idx].led_off_hour = cfg["led_off_hour"];
+        if (cfg.containsKey("cycle_on_min")) configs[idx].cycle_on_min = cfg["cycle_on_min"];
+        if (cfg.containsKey("cycle_off_min")) configs[idx].cycle_off_min = cfg["cycle_off_min"];
+        if (cfg.containsKey("ph_pulse_sec")) configs[idx].ph_pulse_sec = cfg["ph_pulse_sec"];
+        if (cfg.containsKey("ph_threshold_low")) configs[idx].ph_threshold_low = cfg["ph_threshold_low"];
+        if (cfg.containsKey("ph_threshold_high")) configs[idx].ph_threshold_high = cfg["ph_threshold_high"];
+        if (cfg.containsKey("temp_threshold_on")) configs[idx].temp_threshold_on = cfg["temp_threshold_on"];
+        if (cfg.containsKey("temp_threshold_off")) configs[idx].temp_threshold_off = cfg["temp_threshold_off"];
+        if (cfg.containsKey("humidity_threshold_on")) configs[idx].humidity_threshold_on = cfg["humidity_threshold_on"];
+        if (cfg.containsKey("humidity_threshold_off")) configs[idx].humidity_threshold_off = cfg["humidity_threshold_off"];
+        if (cfg.containsKey("ec_threshold")) configs[idx].ec_threshold = cfg["ec_threshold"];
+        if (cfg.containsKey("ec_pulse_sec")) configs[idx].ec_pulse_sec = cfg["ec_pulse_sec"];
+        
+        saveConfig();
+        Serial.printf("[CFG] Configuração do Relé %d atualizada e salva!\n", relay);
       }
     }
     
-    // Comando de reset manual override
+    // ✅ Comando de reset manual override: {"auto": 1}
     if (doc.containsKey("auto")) {
       int relay = doc["auto"];
       if (relay >= 1 && relay <= 8) {
         manual_override[relay - 1] = false;
-        Serial.printf("[CMD] Relé %d -> AUTOMÁTICO\n", relay);
+        Serial.printf("[CMD] Relé %d -> MODO AUTOMÁTICO\n", relay);
       }
     }
   }
