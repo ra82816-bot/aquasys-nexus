@@ -84,8 +84,8 @@ export const RelayConfigDialog = ({
     setIsSaving(true);
     try {
       const updateData = {
-        mode,
         ...formData,
+        mode, // mode deve vir depois para sobrescrever formData.mode
         updated_at: new Date().toISOString()
       };
 
