@@ -20,6 +20,12 @@ const MqttContext = createContext<MqttContextType | undefined>(undefined);
 export const MqttProvider = ({ children }: { children: ReactNode }) => {
   const mqtt = useMqtt();
 
+  // Ensure mqtt hook returns valid object
+  if (!mqtt) {
+    console.error('useMqtt hook returned undefined');
+    return null;
+  }
+
   return (
     <MqttContext.Provider value={mqtt}>
       {children}
