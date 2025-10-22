@@ -224,13 +224,13 @@ export const useMqtt = () => {
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
       const message = {
-        relay_index: relayIndex,
-        ...config
+        relay: relayIndex + 1, // ESP32 espera relay 1-8, não 0-7
+        config: config
       };
 
-      console.log(`📤 Enviando configuração para relé ${relayIndex}:`, message);
+      console.log(`📤 Enviando configuração para relé ${relayIndex + 1}:`, message);
       try {
-        await publish(MQTT_CONFIG.topics.relayConfig, message);
+        await publish(MQTT_CONFIG.topics.relayCommand, message); // ESP32 recebe config no tópico command
         console.log('✅ Configuração enviada com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar configuração:', error);
@@ -243,11 +243,10 @@ export const useMqtt = () => {
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
       const message = {
-        relay_index: relayIndex,
-        auto: true
+        auto: relayIndex + 1 // ESP32 espera relay number 1-8
       };
 
-      console.log(`📤 Definindo modo automático para relé ${relayIndex}:`, message);
+      console.log(`📤 Definindo modo automático para relé ${relayIndex + 1}:`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         console.log('✅ Modo automático definido com sucesso');
