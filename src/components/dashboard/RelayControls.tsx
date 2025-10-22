@@ -37,24 +37,24 @@ export const RelayControls = () => {
     loadData();
 
     const statusChannel = supabase
-      .channel('relay-status-changes')
+      .channel('relay-status-realtime')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'relay_status' },
         (payload) => {
-          console.log('Novo status de relé recebido:', payload.new);
+          console.log('🔄 Novo status de relé recebido via realtime:', payload.new);
           setRelayStatus(payload.new as RelayStatus);
         }
       )
       .subscribe();
 
     const configChannel = supabase
-      .channel('relay-config-changes')
+      .channel('relay-config-realtime')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'relay_configs' },
-        () => {
-          console.log('Configuração de relé atualizada');
+        (payload) => {
+          console.log('🔄 Configuração de relé atualizada via realtime:', payload.new);
           fetchRelayConfigs();
         }
       )
@@ -75,11 +75,16 @@ export const RelayControls = () => {
 
       if (error) throw error;
 
-      console.log('✅ Configurações dos relés carregadas:', data);
-      console.log('📋 Resumo dos modos:', data?.map(c => ({ relay: c.relay_index, mode: c.mode, name: c.name })));
-      setRelayConfigs(data || []);
+      if (data && data.length > 0) {
+        console.log('✅ Configurações carregadas:', data.map(c => 
+          `Relé ${c.relay_index + 1}: ${c.name || 'Sem nome'} [${c.mode}]`
+        ).join(', '));
+        setRelayConfigs(data);
+      } else {
+        console.warn('⚠️ Nenhuma configuração de relé encontrada');
+      }
     } catch (error) {
-      console.error("❌ Erro ao buscar configurações dos relés:", error);
+      console.error("❌ Erro ao buscar configurações:", error);
       toast({
         title: "Erro",
         description: "Não foi possível carregar as configurações dos relés",
@@ -100,13 +105,17 @@ export const RelayControls = () => {
       if (error) throw error;
 
       if (data) {
-        console.log('Status atual dos relés carregado:', data);
+        const statusSummary = Object.entries(data)
+          .filter(([key]) => key.startsWith('relay'))
+          .map(([key, value]) => `${key}: ${value ? 'ON' : 'OFF'}`)
+          .join(', ');
+        console.log('✅ Status atual:', statusSummary);
         setRelayStatus(data as RelayStatus);
       } else {
-        console.log('Nenhum status de relé encontrado no banco');
+        console.warn('⚠️ Nenhum status encontrado - aguardando dados do ESP32');
       }
     } catch (error) {
-      console.error("Erro ao buscar status dos relés:", error);
+      console.error("❌ Erro ao buscar status:", error);
     }
   };
 

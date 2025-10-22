@@ -89,9 +89,9 @@ export const RelayConfigDialog = ({
         updated_at: new Date().toISOString()
       };
 
-      console.log('Salvando configuração do relé:', { relayIndex, updateData });
+      console.log('💾 Salvando configuração do relé:', { relayIndex, mode, formData });
 
-      // Salvar no banco
+      // 1. Salvar no banco
       const { data, error } = await supabase
         .from("relay_configs")
         .update(updateData)
@@ -101,33 +101,32 @@ export const RelayConfigDialog = ({
 
       if (error) throw error;
 
-      console.log('Configuração salva no banco:', data);
+      console.log('✅ Configuração salva no banco:', data);
 
-      // Enviar via MQTT para o ESP32
+      // 2. Enviar via MQTT para o ESP32
       if (isConnected) {
         const mqttConfig = prepareMqttConfig(mode, formData);
         await publishRelayConfig(relayIndex, mqttConfig);
-        console.log('Configuração enviada via MQTT:', mqttConfig);
+        
+        toast({
+          title: "✅ Configuração aplicada",
+          description: `Relé ${relayIndex + 1} configurado em modo ${mode}`,
+        });
       } else {
         toast({
-          title: "Aviso",
-          description: "Configuração salva, mas MQTT desconectado. Será enviada ao ESP32 quando reconectar.",
+          title: "⚠️ MQTT desconectado",
+          description: "Configuração salva. Será enviada ao ESP32 quando reconectar.",
           variant: "default"
         });
       }
 
-      toast({
-        title: "Sucesso",
-        description: "Configuração salva e enviada ao ESP32!"
-      });
-
       await onSave();
       onOpenChange(false);
     } catch (error: any) {
-      console.error('Erro ao salvar configuração:', error);
+      console.error('❌ Erro ao salvar configuração:', error);
       toast({
         title: "Erro",
-        description: error.message,
+        description: error.message || "Falha ao salvar configuração",
         variant: "destructive"
       });
     } finally {

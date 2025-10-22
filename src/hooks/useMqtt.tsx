@@ -204,82 +204,67 @@ export const useMqtt = () => {
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
-      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        relay: relayIndex + 1, // ESP32 usa 1-8, não 0-7
-        command: command // boolean direto
+        command: "manual_override",
+        payload: {
+          relay: relayIndex + 1,
+          state: command ? "on" : "off"
+        }
       };
 
+      console.log('📤 Enviando comando manual:', message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        toast({
-          title: 'Comando enviado',
-          description: `Relé ${relayIndex + 1} → ${command ? 'LIGADO' : 'DESLIGADO'}`,
-        });
+        console.log('✅ Comando manual enviado com sucesso');
       } catch (error) {
-        toast({
-          title: 'Erro ao enviar comando',
-          description: 'Falha na comunicação MQTT',
-          variant: 'destructive',
-        });
+        console.error('❌ Erro ao enviar comando:', error);
         throw error;
       }
     },
-    [publish, toast]
+    [publish]
   );
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
-      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        relay: relayIndex + 1, // ESP32 usa 1-8
-        config: config
+        command: "set_config",
+        payload: {
+          relay: relayIndex + 1,
+          ...config
+        }
       };
 
+      console.log('📤 Enviando configuração:', message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        console.log('✅ Configuração enviada via MQTT para relé', relayIndex);
-        toast({
-          title: 'Configuração enviada',
-          description: `Relé ${relayIndex + 1} configurado com sucesso`,
-        });
+        console.log('✅ Configuração enviada com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar configuração:', error);
-        toast({
-          title: 'Erro ao enviar configuração',
-          description: 'Falha na comunicação MQTT',
-          variant: 'destructive',
-        });
         throw error;
       }
     },
-    [publish, toast]
+    [publish]
   );
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
-      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        relay: relayIndex + 1, // ESP32 usa 1-8
-        auto: true
+        command: "set_auto",
+        payload: {
+          relay: relayIndex + 1
+        }
       };
 
+      console.log('📤 Definindo modo auto:', message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        toast({
-          title: 'Modo automático',
-          description: `Relé ${relayIndex + 1} retornado ao modo automático`,
-        });
+        console.log('✅ Modo auto definido com sucesso');
       } catch (error) {
-        toast({
-          title: 'Erro',
-          description: 'Falha ao definir modo automático',
-          variant: 'destructive',
-        });
+        console.error('❌ Erro ao definir modo auto:', error);
         throw error;
       }
     },
-    [publish, toast]
+    [publish]
   );
 
   useEffect(() => {
