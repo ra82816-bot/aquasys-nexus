@@ -205,14 +205,11 @@ export const useMqtt = () => {
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
       const message = {
-        command: "manual_override",
-        payload: {
-          relay: relayIndex + 1,
-          state: command ? "on" : "off"
-        }
+        relay_index: relayIndex,
+        command: command
       };
 
-      console.log('📤 Enviando comando manual:', message);
+      console.log(`📤 Enviando comando manual para relé ${relayIndex}:`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         console.log('✅ Comando manual enviado com sucesso');
@@ -227,16 +224,13 @@ export const useMqtt = () => {
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
       const message = {
-        command: "set_config",
-        payload: {
-          relay: relayIndex + 1,
-          ...config
-        }
+        relay_index: relayIndex,
+        ...config
       };
 
-      console.log('📤 Enviando configuração:', message);
+      console.log(`📤 Enviando configuração para relé ${relayIndex}:`, message);
       try {
-        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        await publish(MQTT_CONFIG.topics.relayConfig, message);
         console.log('✅ Configuração enviada com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar configuração:', error);
@@ -249,16 +243,14 @@ export const useMqtt = () => {
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
       const message = {
-        command: "set_auto",
-        payload: {
-          relay: relayIndex + 1
-        }
+        relay_index: relayIndex,
+        auto: true
       };
 
-      console.log('📤 Definindo modo auto:', message);
+      console.log(`📤 Definindo modo automático para relé ${relayIndex}:`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        console.log('✅ Modo auto definido com sucesso');
+        console.log('✅ Modo automático definido com sucesso');
       } catch (error) {
         console.error('❌ Erro ao definir modo auto:', error);
         throw error;
