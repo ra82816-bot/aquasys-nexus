@@ -146,7 +146,7 @@ const Dashboard = () => {
               <BarChart3 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
               <span className="text-base sm:text-2xl">Histórico de Leituras</span>
             </h2>
-            <SensorCharts />
+            <SensorChartsEnhanced />
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-3 sm:space-y-4 mt-0">
