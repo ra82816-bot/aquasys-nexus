@@ -23,31 +23,39 @@ serve(async (req) => {
       const airTemp = data.airTemp || data.temperature;
       const waterTemp = data.waterTemp || data.water_temp;
       
-      // Validar campos obrigatórios dos sensores
-      if (!data.ph || !data.ec || !airTemp || !data.humidity || !waterTemp) {
-        console.error('Dados de sensores inválidos:', data);
+      // Validar campos obrigatórios (pH, humidity e water_temp são essenciais)
+      // EC e airTemp podem ser 0 ou undefined em algumas situações
+      if (data.ph === undefined || data.ph === null || 
+          data.humidity === undefined || data.humidity === null ||
+          !waterTemp) {
+        console.error('Dados de sensores inválidos (campos essenciais faltando):', data);
         
         await supabase.from('event_logs').insert({
           type: 'validation_error',
-          message: `Dados de sensores inválidos: ${JSON.stringify(data)}`
+          message: `Dados essenciais faltando: ${JSON.stringify(data)}`
         });
         
         return new Response(
-          JSON.stringify({ error: 'Dados de sensores inválidos' }),
+          JSON.stringify({ error: 'Dados essenciais faltando (pH, humidity, waterTemp)' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
+      // Preparar dados com valores padrão para campos opcionais
+      const readingData = {
+        ph: data.ph,
+        ec: data.ec !== undefined && data.ec !== null ? data.ec : 0,
+        air_temp: airTemp !== undefined && airTemp !== null ? airTemp : waterTemp, // usa water_temp como fallback
+        humidity: data.humidity,
+        water_temp: waterTemp
+      };
+
+      console.log('📊 Inserindo leitura:', readingData);
+
       // Inserir leitura de sensores
       const { error: insertError } = await supabase
         .from('readings')
-        .insert({
-          ph: data.ph,
-          ec: data.ec,
-          air_temp: airTemp,
-          humidity: data.humidity,
-          water_temp: waterTemp
-        });
+        .insert(readingData);
 
       if (insertError) {
         console.error('Erro ao inserir leitura:', insertError);
