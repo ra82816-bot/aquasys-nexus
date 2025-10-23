@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Loader2, BarChart3 } from "lucide-react";
+import { Loader2, BarChart3, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { subDays } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartFilters } from "./ChartFilters";
@@ -16,6 +17,7 @@ export const SensorChartsEnhanced = () => {
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState<Date>(subDays(new Date(), 7));
   const [endDate, setEndDate] = useState<Date>(new Date());
+  const [lastDataTimestamp, setLastDataTimestamp] = useState<string | null>(null);
 
   // Ideal ranges for hydroponic cultivation (example values)
   const idealRanges = {
@@ -67,11 +69,18 @@ export const SensorChartsEnhanced = () => {
       if (!readings || readings.length === 0) {
         console.log('⚠️ Nenhum dado encontrado para o período');
         setData([]);
+        setLastDataTimestamp(null);
         return;
       }
 
       console.log(`✅ ${readings.length} leituras carregadas`);
-      setData(readings as SensorReading[]);
+      const sortedReadings = readings as SensorReading[];
+      setData(sortedReadings);
+      
+      // Get the most recent reading timestamp
+      if (sortedReadings.length > 0) {
+        setLastDataTimestamp(sortedReadings[sortedReadings.length - 1].timestamp);
+      }
     } catch (error) {
       console.error("❌ Erro ao buscar dados:", error);
     } finally {
@@ -125,16 +134,37 @@ export const SensorChartsEnhanced = () => {
     );
   }
 
+  // Check if data is outdated (more than 12 hours old)
+  const isDataOutdated = lastDataTimestamp && 
+    (new Date().getTime() - new Date(lastDataTimestamp).getTime()) > 12 * 60 * 60 * 1000;
+
   return (
     <div className="space-y-6">
       <Card className="bg-gradient-to-r from-primary/10 to-blue-500/10 border-primary/20">
         <CardHeader>
-          <CardTitle className="text-xl flex items-center gap-2">
-            <BarChart3 className="h-6 w-6" />
-            Análise Avançada de Dados
+          <CardTitle className="text-xl flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <BarChart3 className="h-6 w-6" />
+              Análise Avançada de Dados
+            </span>
+            {lastDataTimestamp && (
+              <span className="text-xs text-muted-foreground font-normal">
+                Última leitura: {new Date(lastDataTimestamp).toLocaleString('pt-BR')}
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
       </Card>
+
+      {isDataOutdated && (
+        <Alert variant="destructive" className="border-orange-500 bg-orange-500/10">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Dados Desatualizados</AlertTitle>
+          <AlertDescription>
+            A última leitura dos sensores foi há mais de 12 horas. Verifique se o ESP32 está conectado e enviando dados.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Tabs defaultValue="charts" className="space-y-4">
         <TabsList className="grid w-full grid-cols-4">
@@ -155,9 +185,22 @@ export const SensorChartsEnhanced = () => {
           />
 
           {formattedChartData.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              Nenhum dado disponível para o período selecionado
-            </div>
+            <Card className="border-orange-500/50 bg-orange-500/5">
+              <CardContent className="py-12">
+                <div className="text-center space-y-4">
+                  <AlertTriangle className="h-12 w-12 mx-auto text-orange-500" />
+                  <div>
+                    <h3 className="font-semibold text-lg mb-2">Nenhum dado disponível</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Não há leituras dos sensores para o período selecionado ({startDate.toLocaleDateString('pt-BR')} - {endDate.toLocaleDateString('pt-BR')}).
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Verifique se o ESP32 está conectado e publicando dados no tópico MQTT correto.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           ) : (
             <div className="space-y-4">
               {/* pH Chart */}
