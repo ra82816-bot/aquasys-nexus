@@ -5,7 +5,7 @@ import { Session } from "@supabase/supabase-js";
 import { Activity, BarChart3, Settings, Brain } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
-import { SensorCharts } from "@/components/dashboard/SensorCharts";
+import { SensorChartsEnhanced } from "@/components/dashboard/SensorChartsEnhanced";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
