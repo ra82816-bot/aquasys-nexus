@@ -8,169 +8,183 @@ const corsHeaders = {
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
 
-    const { action, data } = await req.json();
+    const { topic, payload } = await req.json();
+    console.log(`Processando mensagem do tópico: ${topic}`);
 
-    if (action === 'process_sensors') {
-      // Mapear campos do firmware (temperature/waterTemp) para banco (air_temp/water_temp)
-      const airTemp = data.airTemp || data.temperature;
-      const waterTemp = data.waterTemp || data.water_temp;
-      
-      // MUDANÇA: Aceitar dados parciais (pelo menos 1 campo válido)
-      const hasAnyValidData = (
-        (data.ph !== undefined && data.ph !== null) ||
-        (data.ec !== undefined && data.ec !== null) ||
-        (data.humidity !== undefined && data.humidity !== null) ||
-        waterTemp
-      );
-      
-      if (!hasAnyValidData) {
-        console.error('Nenhum dado válido recebido:', data);
-        
-        await supabase.from('event_logs').insert({
-          type: 'validation_error',
-          message: `Dados essenciais faltando: ${JSON.stringify(data)}`
-        });
-        
+    // Processar leituras de sensores
+    if (topic === 'aquasys/sensors/all') {
+      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      console.log('Dados de sensores recebidos:', JSON.stringify(data));
+
+      // Validação: pelo menos um campo válido
+      const hasValidData = 
+        (typeof data.ph === 'number' && !isNaN(data.ph)) ||
+        (typeof data.ec === 'number' && !isNaN(data.ec)) ||
+        (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) ||
+        (typeof data.humidity === 'number' && !isNaN(data.humidity)) ||
+        (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp));
+
+      if (!hasValidData) {
+        console.error('Nenhum dado de sensor válido encontrado');
         return new Response(
-          JSON.stringify({ error: 'Dados essenciais faltando (pH, humidity, waterTemp)' }),
+          JSON.stringify({ error: 'Nenhum dado de sensor válido' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // Preparar dados - aceitar campos null/undefined
-      const readingData: any = {};
+      const insertData: any = {};
       
-      // Adicionar apenas campos válidos
-      if (data.ph !== undefined && data.ph !== null) {
-        readingData.ph = data.ph;
-      }
+      if (typeof data.ph === 'number' && !isNaN(data.ph)) insertData.ph = data.ph;
+      if (typeof data.ec === 'number' && !isNaN(data.ec)) insertData.ec = data.ec;
+      if (typeof data.humidity === 'number' && !isNaN(data.humidity)) insertData.humidity = data.humidity;
+      if (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp)) insertData.water_temp = data.waterTemp;
       
-      if (data.ec !== undefined && data.ec !== null) {
-        readingData.ec = data.ec;
-      } else {
-        readingData.ec = 0; // Default para EC
-      }
-      
-      if (airTemp !== undefined && airTemp !== null) {
-        readingData.air_temp = airTemp;
-      } else if (waterTemp) {
-        readingData.air_temp = waterTemp; // Fallback
-      }
-      
-      if (data.humidity !== undefined && data.humidity !== null) {
-        readingData.humidity = data.humidity;
-      }
-      
-      if (waterTemp) {
-        readingData.water_temp = waterTemp;
+      // airTemp com fallback para waterTemp
+      if (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) {
+        insertData.air_temp = data.airTemp;
+      } else if (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp)) {
+        insertData.air_temp = data.waterTemp;
+        console.log('Usando waterTemp como fallback para airTemp');
       }
 
-      console.log('📊 Inserindo leitura:', readingData);
-
-      // Inserir leitura de sensores
-      const { error: insertError } = await supabase
+      const { error: insertError } = await supabaseAdmin
         .from('readings')
-        .insert(readingData);
+        .insert(insertData);
 
       if (insertError) {
-        console.error('Erro ao inserir leitura:', insertError);
-        
-        await supabase.from('event_logs').insert({
-          type: 'database_error',
-          message: `Erro ao inserir leitura: ${insertError.message}`
-        });
-        
-        throw insertError;
-      }
-
-      console.log('Leitura de sensores inserida com sucesso!');
-      
-      await supabase.from('event_logs').insert({
-        type: 'reading_received',
-        message: `Leitura processada: pH ${data.ph}, EC ${data.ec}`
-      });
-
-      return new Response(
-        JSON.stringify({ message: 'Leitura de sensores processada com sucesso' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (action === 'process_relay_status') {
-      // Validar dados dos relés
-      if (!data.relay1_led === undefined || !data.relay2_pump === undefined) {
-        console.error('Dados de relés inválidos:', data);
-        
-        await supabase.from('event_logs').insert({
-          type: 'validation_error',
-          message: `Dados de relés inválidos: ${JSON.stringify(data)}`
-        });
-        
+        console.error('Erro ao inserir leituras:', insertError);
         return new Response(
-          JSON.stringify({ error: 'Dados de relés inválidos' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ error: insertError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // Inserir status dos relés
-      const { error: insertError } = await supabase
+      console.log('Leituras inseridas com sucesso!');
+    }
+
+    // Processar heartbeat com health data
+    if (topic === 'aquasys/heartbeat') {
+      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      console.log('Heartbeat recebido:', JSON.stringify(data));
+
+      // Extrair device_uuid da mensagem
+      let deviceUuid = data.device_uuid;
+      if (!deviceUuid && data.device) {
+        const match = data.device.match(/HYDRO-([A-F0-9-]+)/i);
+        if (match) deviceUuid = `HYDRO-${match[1]}`;
+      }
+
+      if (deviceUuid) {
+        // Buscar device_id
+        const { data: device } = await supabaseAdmin
+          .from('devices')
+          .select('id')
+          .eq('device_uuid', deviceUuid)
+          .single();
+
+        if (device) {
+          // Inserir health data
+          const healthData: any = {
+            device_id: device.id,
+            uptime_seconds: data.uptime || 0,
+            free_heap: data.free_heap || data.freeHeap,
+            min_free_heap: data.min_free_heap || data.minFreeHeap,
+          };
+
+          // Dados WiFi
+          if (data.wifi) {
+            healthData.wifi_ssid = data.wifi.ssid;
+            healthData.wifi_rssi = data.wifi.rssi || data.wifi_rssi;
+            healthData.wifi_ip = data.wifi.ip;
+            healthData.wifi_reconnects = data.wifi.reconnects || 0;
+          } else if (data.wifi_rssi) {
+            healthData.wifi_rssi = data.wifi_rssi;
+          }
+
+          // Dados MQTT
+          if (data.mqtt) {
+            healthData.mqtt_connected = data.mqtt.connected !== false;
+            healthData.mqtt_failed_attempts = data.mqtt.failed_attempts || 0;
+            healthData.mqtt_last_message_age_ms = data.mqtt.last_message_age_ms;
+          }
+
+          // Dados dos sensores
+          if (data.sensors) {
+            healthData.sensor_ph_valid = data.sensors.ph_valid;
+            healthData.sensor_ec_valid = data.sensors.ec_valid;
+            healthData.sensor_temp_valid = data.sensors.temp_valid;
+            healthData.sensor_humidity_valid = data.sensors.humidity_valid;
+            healthData.sensor_water_temp_valid = data.sensors.water_temp_valid;
+          }
+
+          const { error: healthError } = await supabaseAdmin
+            .from('device_health')
+            .insert(healthData);
+
+          if (healthError) {
+            console.error('Erro ao inserir health data:', healthError);
+          } else {
+            console.log('Health data inserida com sucesso!');
+          }
+
+          // Atualizar last_seen_at do device
+          await supabaseAdmin
+            .from('devices')
+            .update({ last_seen_at: new Date().toISOString() })
+            .eq('id', device.id);
+        }
+      }
+    }
+
+    // Processar status dos relés
+    if (topic === 'aquasys/relay/status') {
+      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      console.log('Status dos relés recebido:', JSON.stringify(data));
+
+      const insertData = {
+        relay1_led: data.relay1 || false,
+        relay2_pump: data.relay2 || false,
+        relay3_ph_up: data.relay3 || false,
+        relay4_fan: data.relay4 || false,
+        relay5_humidity: data.relay5 || false,
+        relay6_ec: data.relay6 || false,
+        relay7_co2: data.relay7 || false,
+        relay8_generic: data.relay8 || false,
+      };
+
+      const { error: insertError } = await supabaseAdmin
         .from('relay_status')
-        .insert({
-          relay1_led: data.relay1_led,
-          relay2_pump: data.relay2_pump,
-          relay3_ph_up: data.relay3_ph_up,
-          relay4_fan: data.relay4_fan,
-          relay5_humidity: data.relay5_humidity,
-          relay6_ec: data.relay6_ec,
-          relay7_co2: data.relay7_co2,
-          relay8_generic: data.relay8_generic
-        });
+        .insert(insertData);
 
       if (insertError) {
         console.error('Erro ao inserir status dos relés:', insertError);
-        
-        await supabase.from('event_logs').insert({
-          type: 'database_error',
-          message: `Erro ao inserir status dos relés: ${insertError.message}`
-        });
-        
-        throw insertError;
+        return new Response(
+          JSON.stringify({ error: insertError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
       console.log('Status dos relés inserido com sucesso!');
-      
-      await supabase.from('event_logs').insert({
-        type: 'relay_status_received',
-        message: `Status dos relés processado`
-      });
-
-      return new Response(
-        JSON.stringify({ message: 'Status dos relés processado com sucesso' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Ação inválida' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error) {
-    console.error('Erro:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Erro desconhecido' }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
+    console.error('Erro ao processar mensagem MQTT:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });

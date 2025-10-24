@@ -272,6 +272,139 @@ export type Database = {
           },
         ]
       }
+      device_health: {
+        Row: {
+          device_id: string | null
+          free_heap: number | null
+          id: string
+          min_free_heap: number | null
+          mqtt_connected: boolean | null
+          mqtt_failed_attempts: number | null
+          mqtt_last_message_age_ms: number | null
+          sensor_ec_valid: boolean | null
+          sensor_humidity_valid: boolean | null
+          sensor_ph_valid: boolean | null
+          sensor_temp_valid: boolean | null
+          sensor_water_temp_valid: boolean | null
+          timestamp: string | null
+          uptime_seconds: number | null
+          wifi_ip: string | null
+          wifi_reconnects: number | null
+          wifi_rssi: number | null
+          wifi_ssid: string | null
+        }
+        Insert: {
+          device_id?: string | null
+          free_heap?: number | null
+          id?: string
+          min_free_heap?: number | null
+          mqtt_connected?: boolean | null
+          mqtt_failed_attempts?: number | null
+          mqtt_last_message_age_ms?: number | null
+          sensor_ec_valid?: boolean | null
+          sensor_humidity_valid?: boolean | null
+          sensor_ph_valid?: boolean | null
+          sensor_temp_valid?: boolean | null
+          sensor_water_temp_valid?: boolean | null
+          timestamp?: string | null
+          uptime_seconds?: number | null
+          wifi_ip?: string | null
+          wifi_reconnects?: number | null
+          wifi_rssi?: number | null
+          wifi_ssid?: string | null
+        }
+        Update: {
+          device_id?: string | null
+          free_heap?: number | null
+          id?: string
+          min_free_heap?: number | null
+          mqtt_connected?: boolean | null
+          mqtt_failed_attempts?: number | null
+          mqtt_last_message_age_ms?: number | null
+          sensor_ec_valid?: boolean | null
+          sensor_humidity_valid?: boolean | null
+          sensor_ph_valid?: boolean | null
+          sensor_temp_valid?: boolean | null
+          sensor_water_temp_valid?: boolean | null
+          timestamp?: string | null
+          uptime_seconds?: number | null
+          wifi_ip?: string | null
+          wifi_reconnects?: number | null
+          wifi_rssi?: number | null
+          wifi_ssid?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_health_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      device_owners: {
+        Row: {
+          device_id: string
+          paired_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          device_id: string
+          paired_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          device_id?: string
+          paired_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_owners_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: true
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      devices: {
+        Row: {
+          created_at: string | null
+          device_type: Database["public"]["Enums"]["device_type"]
+          device_uuid: string
+          firmware_version: string | null
+          first_seen_at: string | null
+          id: string
+          last_seen_at: string | null
+          mqtt_password_hash: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          device_type: Database["public"]["Enums"]["device_type"]
+          device_uuid: string
+          firmware_version?: string | null
+          first_seen_at?: string | null
+          id?: string
+          last_seen_at?: string | null
+          mqtt_password_hash: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          device_type?: Database["public"]["Enums"]["device_type"]
+          device_uuid?: string
+          firmware_version?: string | null
+          first_seen_at?: string | null
+          id?: string
+          last_seen_at?: string | null
+          mqtt_password_hash?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       event_logs: {
         Row: {
           id: number
@@ -1246,10 +1379,7 @@ export type Database = {
           water_temp_min: number
         }[]
       }
-      get_user_storage_usage: {
-        Args: { p_user_id: string }
-        Returns: number
-      }
+      get_user_storage_usage: { Args: { p_user_id: string }; Returns: number }
       search_knowledge_by_vector: {
         Args: {
           match_count?: number
@@ -1263,8 +1393,13 @@ export type Database = {
           similarity: number
         }[]
       }
+      user_owns_device: {
+        Args: { _device_id: string; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
+      device_type: "sensor" | "actuator"
       growth_stage:
         | "germination"
         | "seedling"
@@ -1437,6 +1572,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      device_type: ["sensor", "actuator"],
       growth_stage: [
         "germination",
         "seedling",
