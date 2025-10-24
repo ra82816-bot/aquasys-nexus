@@ -23,12 +23,16 @@ serve(async (req) => {
       const airTemp = data.airTemp || data.temperature;
       const waterTemp = data.waterTemp || data.water_temp;
       
-      // Validar campos obrigatórios (pH, humidity e water_temp são essenciais)
-      // EC e airTemp podem ser 0 ou undefined em algumas situações
-      if (data.ph === undefined || data.ph === null || 
-          data.humidity === undefined || data.humidity === null ||
-          !waterTemp) {
-        console.error('Dados de sensores inválidos (campos essenciais faltando):', data);
+      // MUDANÇA: Aceitar dados parciais (pelo menos 1 campo válido)
+      const hasAnyValidData = (
+        (data.ph !== undefined && data.ph !== null) ||
+        (data.ec !== undefined && data.ec !== null) ||
+        (data.humidity !== undefined && data.humidity !== null) ||
+        waterTemp
+      );
+      
+      if (!hasAnyValidData) {
+        console.error('Nenhum dado válido recebido:', data);
         
         await supabase.from('event_logs').insert({
           type: 'validation_error',
@@ -41,14 +45,33 @@ serve(async (req) => {
         );
       }
 
-      // Preparar dados com valores padrão para campos opcionais
-      const readingData = {
-        ph: data.ph,
-        ec: data.ec !== undefined && data.ec !== null ? data.ec : 0,
-        air_temp: airTemp !== undefined && airTemp !== null ? airTemp : waterTemp, // usa water_temp como fallback
-        humidity: data.humidity,
-        water_temp: waterTemp
-      };
+      // Preparar dados - aceitar campos null/undefined
+      const readingData: any = {};
+      
+      // Adicionar apenas campos válidos
+      if (data.ph !== undefined && data.ph !== null) {
+        readingData.ph = data.ph;
+      }
+      
+      if (data.ec !== undefined && data.ec !== null) {
+        readingData.ec = data.ec;
+      } else {
+        readingData.ec = 0; // Default para EC
+      }
+      
+      if (airTemp !== undefined && airTemp !== null) {
+        readingData.air_temp = airTemp;
+      } else if (waterTemp) {
+        readingData.air_temp = waterTemp; // Fallback
+      }
+      
+      if (data.humidity !== undefined && data.humidity !== null) {
+        readingData.humidity = data.humidity;
+      }
+      
+      if (waterTemp) {
+        readingData.water_temp = waterTemp;
+      }
 
       console.log('📊 Inserindo leitura:', readingData);
 
