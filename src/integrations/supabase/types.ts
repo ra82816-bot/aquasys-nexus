@@ -272,6 +272,91 @@ export type Database = {
           },
         ]
       }
+      device_calibration_profiles: {
+        Row: {
+          calibration_data: Json
+          created_at: string | null
+          created_by: string | null
+          device_id: string | null
+          id: string
+          is_active: boolean | null
+          profile_name: string
+          sensor_type: string
+          updated_at: string | null
+        }
+        Insert: {
+          calibration_data: Json
+          created_at?: string | null
+          created_by?: string | null
+          device_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          profile_name: string
+          sensor_type: string
+          updated_at?: string | null
+        }
+        Update: {
+          calibration_data?: Json
+          created_at?: string | null
+          created_by?: string | null
+          device_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          profile_name?: string
+          sensor_type?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_calibration_profiles_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      device_commands: {
+        Row: {
+          command_data: Json
+          command_type: string
+          created_at: string | null
+          device_id: string | null
+          executed_at: string | null
+          id: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          command_data: Json
+          command_type: string
+          created_at?: string | null
+          device_id?: string | null
+          executed_at?: string | null
+          id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          command_data?: Json
+          command_type?: string
+          created_at?: string | null
+          device_id?: string | null
+          executed_at?: string | null
+          id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_commands_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_health: {
         Row: {
           device_id: string | null
@@ -756,6 +841,44 @@ export type Database = {
             columns: ["knowledge_id"]
             isOneToOne: false
             referencedRelation: "knowledge_base"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mqtt_rate_limits: {
+        Row: {
+          blocked_until: string | null
+          created_at: string | null
+          device_id: string | null
+          endpoint: string
+          id: string
+          request_count: number | null
+          window_start: string | null
+        }
+        Insert: {
+          blocked_until?: string | null
+          created_at?: string | null
+          device_id?: string | null
+          endpoint: string
+          id?: string
+          request_count?: number | null
+          window_start?: string | null
+        }
+        Update: {
+          blocked_until?: string | null
+          created_at?: string | null
+          device_id?: string | null
+          endpoint?: string
+          id?: string
+          request_count?: number | null
+          window_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mqtt_rate_limits_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
             referencedColumns: ["id"]
           },
         ]
@@ -1361,6 +1484,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_rate_limits: { Args: never; Returns: undefined }
       get_ideal_parameters: {
         Args: {
           p_growth_stage: Database["public"]["Enums"]["growth_stage"]

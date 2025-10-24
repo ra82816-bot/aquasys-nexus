@@ -14,6 +14,7 @@ import Plants from "./pages/Plants";
 import Knowledge from "./pages/Knowledge";
 import Camera from "./pages/Camera";
 import Connections from "./pages/Connections";
+import Devices from "./pages/Devices";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -46,6 +47,7 @@ const AppContent = () => {
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/camera" element={<Camera />} />
         <Route path="/connections" element={<Connections />} />
+        <Route path="/devices" element={<Devices />} />
         {/* Legacy routes redirect to connections */}
         <Route path="/bluetooth" element={<Connections />} />
         <Route path="/wifi" element={<Connections />} />

@@ -6,6 +6,108 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW = 60000; // 1 minuto
+const MAX_REQUESTS_PER_WINDOW = 100; // 100 requisições por minuto por dispositivo
+const BLOCK_DURATION = 300000; // 5 minutos de bloqueio
+
+async function checkRateLimit(supabase: any, deviceUuid: string, endpoint: string): Promise<{ allowed: boolean; message?: string }> {
+  try {
+    // Buscar device_id
+    const { data: device } = await supabase
+      .from('devices')
+      .select('id')
+      .eq('device_uuid', deviceUuid)
+      .single();
+
+    if (!device) return { allowed: true }; // Dispositivo não cadastrado, permitir
+
+    const now = new Date();
+    
+    // Verificar se está bloqueado
+    const { data: existingLimit } = await supabase
+      .from('mqtt_rate_limits')
+      .select('*')
+      .eq('device_id', device.id)
+      .eq('endpoint', endpoint)
+      .single();
+
+    if (existingLimit) {
+      // Verificar se está bloqueado
+      if (existingLimit.blocked_until && new Date(existingLimit.blocked_until) > now) {
+        return {
+          allowed: false,
+          message: `Dispositivo bloqueado até ${new Date(existingLimit.blocked_until).toISOString()}`
+        };
+      }
+
+      // Verificar janela de tempo
+      const windowStart = new Date(existingLimit.window_start);
+      const timeSinceWindowStart = now.getTime() - windowStart.getTime();
+
+      if (timeSinceWindowStart < RATE_LIMIT_WINDOW) {
+        // Dentro da janela, incrementar contador
+        const newCount = existingLimit.request_count + 1;
+
+        if (newCount > MAX_REQUESTS_PER_WINDOW) {
+          // Excedeu o limite, bloquear
+          const blockedUntil = new Date(now.getTime() + BLOCK_DURATION);
+          
+          await supabase
+            .from('mqtt_rate_limits')
+            .update({
+              request_count: newCount,
+              blocked_until: blockedUntil.toISOString()
+            })
+            .eq('id', existingLimit.id);
+
+          console.warn(`Dispositivo ${deviceUuid} bloqueado por excesso de requisições`);
+
+          return {
+            allowed: false,
+            message: `Taxa excedida. Bloqueado até ${blockedUntil.toISOString()}`
+          };
+        }
+
+        // Incrementar contador
+        await supabase
+          .from('mqtt_rate_limits')
+          .update({ request_count: newCount })
+          .eq('id', existingLimit.id);
+
+        return { allowed: true };
+      } else {
+        // Nova janela, resetar contador
+        await supabase
+          .from('mqtt_rate_limits')
+          .update({
+            request_count: 1,
+            window_start: now.toISOString(),
+            blocked_until: null
+          })
+          .eq('id', existingLimit.id);
+
+        return { allowed: true };
+      }
+    } else {
+      // Primeiro acesso, criar registro
+      await supabase
+        .from('mqtt_rate_limits')
+        .insert({
+          device_id: device.id,
+          endpoint,
+          request_count: 1,
+          window_start: now.toISOString()
+        });
+
+      return { allowed: true };
+    }
+  } catch (error) {
+    console.error('Erro no rate limiting:', error);
+    return { allowed: true }; // Em caso de erro, permitir para não bloquear operação
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -18,7 +120,22 @@ serve(async (req) => {
     );
 
     const { topic, payload } = await req.json();
-    console.log(`Processando mensagem do tópico: ${topic}`);
+    
+    // Extrair device_uuid do payload
+    const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    const deviceUuid = data.device_uuid || 'unknown';
+    
+    // Rate limiting
+    const rateLimitCheck = await checkRateLimit(supabaseAdmin, deviceUuid, topic);
+    if (!rateLimitCheck.allowed) {
+      console.warn(`Rate limit excedido para ${deviceUuid}: ${rateLimitCheck.message}`);
+      return new Response(
+        JSON.stringify({ error: 'Rate limit excedido', details: rateLimitCheck.message }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Processando mensagem do tópico: ${topic} de ${deviceUuid}`);
 
     // Processar leituras de sensores
     if (topic === 'aquasys/sensors/all') {
