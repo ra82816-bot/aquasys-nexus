@@ -36,11 +36,11 @@ const int RELAY_PINS[8] = {23, 22, 21, 19, 18, 17, 16, 15};
 #define BLE_SCAN_INTERVAL 5000
 #define BLE_ACTIVATION_TIMEOUT 180000
 
-// MQTT
-const char* mqtt_broker = "broker.hivemq.com";
-const int mqtt_port = 8883;
-const char* mqtt_user = "aquasys";
-const char* mqtt_password = "aquasys2024";
+// MQTT - Credenciais HiveMQ Cloud
+const char* mqtt_broker = "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud";
+const int mqtt_port = 8884;
+const char* mqtt_user = "esp32-user";
+const char* mqtt_password = "HydroSmart123";
 
 const char* root_ca = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -76,9 +76,10 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
 )EOF";
 
+// Tópicos MQTT
 const char* TOPIC_RELAY_STATUS = "aquasys/relay/status";
+const char* TOPIC_RELAY_COMMAND = "aquasys/relay/command";
 const char* TOPIC_HEARTBEAT = "aquasys/heartbeat";
-const char* TOPIC_COMMANDS = "aquasys/commands/#";
 const char* TOPIC_SENSORS = "aquasys/sensors/all";
 
 // BLE UUIDs (devem corresponder ao sensor)
@@ -267,7 +268,7 @@ void reconnectMQTT() {
     
     if (mqttClient.connect(mqttClientId.c_str(), mqtt_user, mqtt_password)) {
       lastSuccessfulMqtt = millis();
-      mqttClient.subscribe(TOPIC_COMMANDS);
+      mqttClient.subscribe(TOPIC_RELAY_COMMAND);
       mqttClient.subscribe(TOPIC_SENSORS);
       logMessage("INFO", "MQTT TLS OK");
       mqttFailedAttempts = 0;
@@ -303,7 +304,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // Processar comandos de relés
-  if (String(topic).startsWith("aquasys/commands/relay")) {
+  if (String(topic) == TOPIC_RELAY_COMMAND) {
     int relayIdx = doc["relay"] | -1;
     bool state = doc["state"] | false;
     
@@ -311,6 +312,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       digitalWrite(RELAY_PINS[relayIdx], state ? HIGH : LOW);
       relayStates[relayIdx] = state;
       logMessage("INFO", ("Relé " + String(relayIdx) + ": " + (state ? "ON" : "OFF")).c_str());
+      publishRelayStatus();
     }
   }
 }
