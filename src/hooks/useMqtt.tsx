@@ -139,6 +139,9 @@ export const useMqtt = () => {
     try {
       console.log('💾 Salvando dados de sensores no banco...');
       
+      // ✅ Extrair device_uuid do firmware v4.3-F1 (HYDRO-XXYY-ZZWW-AABB)
+      const deviceUuid = data.device_uuid || data.deviceUUID || 'unknown';
+      
       // Mapear campos do firmware (temperature/waterTemp) para o formato esperado
       const sensorPayload = {
         ph: data.ph,
@@ -148,7 +151,7 @@ export const useMqtt = () => {
         humidity: data.humidity,
         // Aceitar: waterTemp (firmware v2.5), water_temp (banco)
         waterTemp: data.waterTemp || data.water_temp,
-        device_uuid: data.device_uuid || 'unknown'
+        device_uuid: deviceUuid
       };
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
@@ -172,6 +175,9 @@ export const useMqtt = () => {
     try {
       console.log('💾 Salvando status dos relés no banco...', data);
       
+      // ✅ Extrair device_uuid do firmware v4.3-F1
+      const deviceUuid = data.device_uuid || data.deviceUUID || 'unknown';
+      
       // Formato esperado pela edge function mqtt-collector
       const relayPayload = {
         relay1: data.relay1 ?? false,
@@ -182,7 +188,7 @@ export const useMqtt = () => {
         relay6: data.relay6 ?? false,
         relay7: data.relay7 ?? false,
         relay8: data.relay8 ?? false,
-        device_uuid: data.device_uuid || 'unknown'
+        device_uuid: deviceUuid
       };
 
       console.log('💾 Dados mapeados para salvar:', relayPayload);
@@ -206,15 +212,16 @@ export const useMqtt = () => {
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
+      // ✅ Firmware v4.3-F1 espera índice 0-7 (não 1-8)
       const message = {
-        relay_index: relayIndex,
-        command: command
+        relay: relayIndex - 1, // Converte de 1-8 para 0-7
+        state: command
       };
 
-      console.log(`📤 Enviando comando manual para relé ${relayIndex}:`, message);
+      console.log(`📤 Enviando comando para relé ${relayIndex} (índice ${relayIndex - 1}):`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        console.log('✅ Comando manual enviado com sucesso');
+        console.log('✅ Comando enviado com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar comando:', error);
         throw error;
@@ -225,14 +232,15 @@ export const useMqtt = () => {
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
+      // ✅ Firmware v4.3-F1 espera índice 0-7 (não 1-8)
       const message = {
-        relay: relayIndex + 1, // ESP32 espera relay 1-8, não 0-7
+        relay: relayIndex - 1, // Converte de 1-8 para 0-7
         config: config
       };
 
-      console.log(`📤 Enviando configuração para relé ${relayIndex + 1}:`, message);
+      console.log(`📤 Enviando configuração para relé ${relayIndex} (índice ${relayIndex - 1}):`, message);
       try {
-        await publish(MQTT_CONFIG.topics.relayCommand, message); // ESP32 recebe config no tópico command
+        await publish(MQTT_CONFIG.topics.relayCommand, message);
         console.log('✅ Configuração enviada com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar configuração:', error);
@@ -244,11 +252,12 @@ export const useMqtt = () => {
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
+      // ✅ Firmware v4.3-F1 espera índice 0-7 (não 1-8)
       const message = {
-        auto: relayIndex + 1 // ESP32 espera relay number 1-8
+        auto: relayIndex - 1 // Converte de 1-8 para 0-7
       };
 
-      console.log(`📤 Definindo modo automático para relé ${relayIndex + 1}:`, message);
+      console.log(`📤 Definindo modo automático para relé ${relayIndex} (índice ${relayIndex - 1})`);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         console.log('✅ Modo automático definido com sucesso');
