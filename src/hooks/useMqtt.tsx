@@ -147,13 +147,14 @@ export const useMqtt = () => {
         airTemp: data.temperature || data.airTemp || data.air_temp,
         humidity: data.humidity,
         // Aceitar: waterTemp (firmware v2.5), water_temp (banco)
-        waterTemp: data.waterTemp || data.water_temp
+        waterTemp: data.waterTemp || data.water_temp,
+        device_uuid: data.device_uuid || 'unknown'
       };
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
-          action: 'process_sensors',
-          data: sensorPayload
+          topic: 'aquasys/sensors/all',
+          payload: sensorPayload
         }
       });
 
@@ -171,24 +172,25 @@ export const useMqtt = () => {
     try {
       console.log('💾 Salvando status dos relés no banco...', data);
       
-      // Mapear relay1, relay2, etc. para relay1_led, relay2_pump, etc.
-      const mappedData = {
-        relay1_led: data.relay1 ?? false,
-        relay2_pump: data.relay2 ?? false,
-        relay3_ph_up: data.relay3 ?? false,
-        relay4_fan: data.relay4 ?? false,
-        relay5_humidity: data.relay5 ?? false,
-        relay6_ec: data.relay6 ?? false,
-        relay7_co2: data.relay7 ?? false,
-        relay8_generic: data.relay8 ?? false
+      // Formato esperado pela edge function mqtt-collector
+      const relayPayload = {
+        relay1: data.relay1 ?? false,
+        relay2: data.relay2 ?? false,
+        relay3: data.relay3 ?? false,
+        relay4: data.relay4 ?? false,
+        relay5: data.relay5 ?? false,
+        relay6: data.relay6 ?? false,
+        relay7: data.relay7 ?? false,
+        relay8: data.relay8 ?? false,
+        device_uuid: data.device_uuid || 'unknown'
       };
 
-      console.log('💾 Dados mapeados para salvar:', mappedData);
+      console.log('💾 Dados mapeados para salvar:', relayPayload);
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
-          action: 'process_relay_status',
-          data: mappedData
+          topic: 'aquasys/relay/status',
+          payload: relayPayload
         }
       });
 
