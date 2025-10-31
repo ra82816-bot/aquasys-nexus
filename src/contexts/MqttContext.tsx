@@ -5,6 +5,8 @@ import type { MqttMessage } from '@/hooks/useMqtt';
 interface MqttContextType {
   isConnected: boolean;
   lastMessage: MqttMessage | null;
+  lastSensorUpdate: number;
+  sensorTimeout: boolean;
   publish: (topic: string, message: any, options?: any) => Promise<void>;
   publishRelayCommand: (relayIndex: number, command: boolean) => Promise<void>;
   publishRelayConfig: (relayIndex: number, config: any) => Promise<void>;

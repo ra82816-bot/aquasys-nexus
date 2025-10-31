@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Power, PowerOff, Pencil, Check, X, RefreshCcw } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useMqttContext } from "@/contexts/MqttContext";
@@ -20,8 +20,21 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const [isLoading, setIsLoading] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(name);
+  const [commandStatus, setCommandStatus] = useState<'idle' | 'pending' | 'confirmed'>('idle');
   const { toast } = useToast();
-  const { publishRelayCommand, setRelayAuto, isConnected } = useMqttContext();
+  const { publishRelayCommand, setRelayAuto, isConnected, lastMessage } = useMqttContext();
+
+  // ✅ CONFIRMAÇÃO VISUAL: Detectar confirmação via MQTT
+  useEffect(() => {
+    if (commandStatus === 'pending' && lastMessage?.topic === 'aquasys/relay/status') {
+      const relayKey = `relay${relayIndex}`;
+      if (lastMessage.payload[relayKey] !== undefined) {
+        setCommandStatus('confirmed');
+        setIsLoading(false);
+        setTimeout(() => setCommandStatus('idle'), 2000);
+      }
+    }
+  }, [lastMessage, commandStatus, relayIndex]);
 
   const handleToggle = async () => {
     if (!isConnected) {
@@ -33,25 +46,35 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       return;
     }
 
+    setCommandStatus('pending');
     setIsLoading(true);
 
     try {
       const newState = !isOn;
       await publishRelayCommand(relayIndex, newState);
       
-      toast({
-        title: "Comando enviado",
-        description: `Relé ${relayIndex + 1} → ${newState ? 'LIGADO' : 'DESLIGADO'}`,
-      });
+      // Timeout de 5 segundos para confirmação
+      setTimeout(() => {
+        if (commandStatus === 'pending') {
+          setCommandStatus('idle');
+          setIsLoading(false);
+          toast({
+            title: "⚠️ Sem confirmação",
+            description: "Comando enviado, mas sem resposta do dispositivo",
+            variant: "destructive",
+          });
+        }
+      }, 5000);
+      
     } catch (error) {
+      setCommandStatus('idle');
+      setIsLoading(false);
       console.error('Erro ao enviar comando:', error);
       toast({
         title: "Erro",
         description: "Falha ao enviar comando ao relé",
         variant: "destructive"
       });
-    } finally {
-      setTimeout(() => setIsLoading(false), 1000);
     }
   };
 
@@ -196,37 +219,53 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
           </div>
 
           
-          <div className="flex gap-2">
-            <Button
-              onClick={handleToggle}
-              disabled={isLoading || !isConnected}
-              className="flex-1 gap-2"
-              variant={isOn ? "destructive" : "default"}
-              title={isOn ? "Desligar relé" : "Ligar relé"}
-            >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Processando...
-                </span>
-              ) : (
-                <>
-                  {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                  {isOn ? 'Desligar' : 'Ligar'}
-                </>
-              )}
-            </Button>
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <Button
+                onClick={handleToggle}
+                disabled={isLoading || !isConnected}
+                className="flex-1 gap-2"
+                variant={isOn ? "destructive" : "default"}
+                title={isOn ? "Desligar relé" : "Ligar relé"}
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    Processando...
+                  </span>
+                ) : (
+                  <>
+                    {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                    {isOn ? 'Desligar' : 'Ligar'}
+                  </>
+                )}
+              </Button>
             
-            <Button
-              onClick={handleSetAuto}
-              disabled={isLoading || !isConnected}
-              variant="outline"
-              size="sm"
-              className="px-3"
-              title="Retornar ao modo automático"
-            >
-              <RefreshCcw className="h-4 w-4" />
-            </Button>
+              <Button
+                onClick={handleSetAuto}
+                disabled={isLoading || !isConnected}
+                variant="outline"
+                size="sm"
+                className="px-3"
+                title="Retornar ao modo automático"
+              >
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* ✅ Indicador de confirmação */}
+            {commandStatus === 'pending' && (
+              <div className="text-xs text-blue-600 dark:text-blue-400 animate-pulse flex items-center gap-1">
+                <div className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-ping" />
+                Aguardando confirmação do dispositivo...
+              </div>
+            )}
+            {commandStatus === 'confirmed' && (
+              <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                <div className="h-2 w-2 rounded-full bg-green-600 dark:bg-green-400" />
+                Comando confirmado pelo dispositivo!
+              </div>
+            )}
           </div>
 
           {!isConnected && (

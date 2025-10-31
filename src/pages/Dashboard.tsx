@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
-import { Activity, BarChart3, Settings, Brain } from "lucide-react";
+import { Activity, BarChart3, Settings, Brain, Cpu } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SensorCard } from "@/components/dashboard/SensorCard";
 import { SensorChartsEnhanced } from "@/components/dashboard/SensorChartsEnhanced";
@@ -10,6 +10,7 @@ import { RelayControls } from "@/components/dashboard/RelayControls";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
 import { SensorCalibration } from "@/components/dashboard/SensorCalibration";
+import { DeviceStatus } from "@/components/dashboard/DeviceStatus";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/dashboard/AppHeader";
 import { MqttFooter } from "@/components/dashboard/MqttFooter";
@@ -160,6 +161,14 @@ const Dashboard = () => {
           <TabsContent value="relays" className="space-y-3 sm:space-y-4 mt-0">
             <RelayControls />
             <PhControlPanel />
+          </TabsContent>
+
+          <TabsContent value="devices" className="space-y-3 sm:space-y-4 mt-0">
+            <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
+              <Cpu className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+              <span className="text-base sm:text-2xl">Status dos Dispositivos</span>
+            </h2>
+            <DeviceStatus />
           </TabsContent>
         </Tabs>
       </main>

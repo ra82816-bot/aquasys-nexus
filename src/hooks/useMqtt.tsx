@@ -13,6 +13,8 @@ export interface MqttMessage {
 export const useMqtt = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<MqttMessage | null>(null);
+  const [lastSensorUpdate, setLastSensorUpdate] = useState<number>(0);
+  const [sensorTimeout, setSensorTimeout] = useState(false);
   const clientRef = useRef<MqttClient | null>(null);
   const { toast } = useToast();
 
@@ -142,14 +144,16 @@ export const useMqtt = () => {
       // ✅ Extrair device_uuid do firmware v4.3-F1 (HYDRO-XXYY-ZZWW-AABB)
       const deviceUuid = data.device_uuid || data.deviceUUID || 'unknown';
       
-      // Mapear campos do firmware (temperature/waterTemp) para o formato esperado
+      // ✅ CORREÇÃO CRÍTICA: Mapear "temperature" do sensor para "airTemp" E "temperature"
+      // Sensor publica "temperature", atuador espera "airTemp"
+      const airTempValue = data.temperature || data.airTemp || data.air_temp;
+      
       const sensorPayload = {
         ph: data.ph,
         ec: data.ec,
-        // Aceitar: temperature (firmware v2.5), airTemp (legado), air_temp (banco)
-        airTemp: data.temperature || data.airTemp || data.air_temp,
+        airTemp: airTempValue,
+        temperature: airTempValue, // ✅ Publicar ambos os campos para compatibilidade total
         humidity: data.humidity,
-        // Aceitar: waterTemp (firmware v2.5), water_temp (banco)
         waterTemp: data.waterTemp || data.water_temp,
         device_uuid: deviceUuid
       };
@@ -165,6 +169,7 @@ export const useMqtt = () => {
         console.error('❌ Erro ao salvar sensores:', error);
       } else {
         console.log('✅ Dados de sensores salvos:', result);
+        setLastSensorUpdate(Date.now()); // ✅ Atualizar timestamp
       }
     } catch (error) {
       console.error('❌ Erro ao chamar edge function:', error);
@@ -269,6 +274,35 @@ export const useMqtt = () => {
     [publish]
   );
 
+  // ✅ VALIDAÇÃO DE TIMEOUT DE DADOS (Prioridade ALTA)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastSensorUpdate;
+      
+      if (lastSensorUpdate > 0 && elapsed > 180000) { // 3 minutos
+        if (!sensorTimeout) {
+          setSensorTimeout(true);
+          toast({
+            title: "⚠️ Sensores offline",
+            description: "Não há dados atualizados há mais de 3 minutos. Verifique a conexão dos dispositivos.",
+            variant: "destructive"
+          });
+        }
+      } else {
+        if (sensorTimeout) {
+          setSensorTimeout(false);
+          toast({
+            title: "✅ Sensores reconectados",
+            description: "Dados de sensores voltaram ao normal.",
+          });
+        }
+      }
+    }, 30000); // Verificar a cada 30 segundos
+    
+    return () => clearInterval(interval);
+  }, [lastSensorUpdate, sensorTimeout, toast]);
+
   useEffect(() => {
     connect();
     return () => disconnect();
@@ -277,6 +311,8 @@ export const useMqtt = () => {
   return {
     isConnected,
     lastMessage,
+    lastSensorUpdate,
+    sensorTimeout,
     publish,
     publishRelayCommand,
     publishRelayConfig,
