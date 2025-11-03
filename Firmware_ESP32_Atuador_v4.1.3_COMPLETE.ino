@@ -1,12 +1,16 @@
 /*
- * AquaSys Nexus - Actuator Module v4.1.2-FIXED
- * =============================================
- * Correções críticas sobre v4.1.1:
- * - ✅ Backoff exponencial MQTT corrigido
- * - ✅ BLE String conversion corrigida
- * - ✅ UUIDs BLE limpos
- * - ✅ HTML AP Mode corrigido
- * - ✅ Namespace NVS padronizado
+ * AquaSys Nexus - Actuator Module v4.1.3-COMPLETE
+ * ===============================================
+ * Firmware completo e corrigido:
+ * ✅ Backoff exponencial MQTT corrigido
+ * ✅ BLE String conversion corrigida  
+ * ✅ UUIDs BLE limpos
+ * ✅ HTML AP Mode corrigido
+ * ✅ Namespace NVS padronizado (hydrosmart)
+ * ✅ WDT resetado durante setup bloqueante
+ * ✅ Autenticação segura com certificado CA
+ * ✅ BLE desativado quando MQTT reconecta
+ * ✅ API BLE corrigida (String)
  */
 
 // ==================== INCLUDES ====================
@@ -316,7 +320,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  logMessage(LOG_INFO, "=== AquaSys Actuator v4.1.2-FIXED ===");
+  logMessage(LOG_INFO, "=== AquaSys Actuator v4.1.3-COMPLETE ===");
   
   // Watchdog
   initWatchdog();
@@ -335,10 +339,12 @@ void setup() {
   setupBLE();
   
   // WiFi
+  esp_task_wdt_reset();
   setupWiFi();
   
   // Autenticação
   if (wifiConnected && !apMode) {
+    esp_task_wdt_reset();
     authCompleted = authenticateDevice();
     if (!authCompleted) {
       authFailureCount++;
@@ -350,11 +356,13 @@ void setup() {
   
   // NTP
   if (wifiConnected && !apMode) {
+    esp_task_wdt_reset();
     setupNTP();
   }
   
   // MQTT
   if (authCompleted) {
+    esp_task_wdt_reset();
     setupMQTT();
   }
   
@@ -395,6 +403,16 @@ void loop() {
   if (millis() - lastWifiCheck > WIFI_CHECK_INTERVAL) {
     lastWifiCheck = millis();
     checkWiFi();
+  }
+  
+  // Desativar BLE se MQTT voltou
+  if (mqttConnected && bleActivated) {
+    logMessage(LOG_INFO, "MQTT reconectado - desativando fallback BLE");
+    bleActivated = false;
+    disconnectBLE();
+    if (pBLEScan->isScanning()) {
+      pBLEScan->stop();
+    }
   }
   
   // MQTT
@@ -915,11 +933,10 @@ bool authenticateDevice() {
   
   logMessage(LOG_INFO, "Autenticando dispositivo...");
   
-  WiFiClientSecure client;
-  client.setCACert(HIVEMQ_ROOT_CA);
+  wifiClient.setCACert(HIVEMQ_ROOT_CA);
   
   HTTPClient https;
-  https.begin(client, AUTH_SERVER);
+  https.begin(wifiClient, AUTH_SERVER);
   https.addHeader("Content-Type", "application/json");
   https.addHeader(AUTH_HEADER_KEY, AUTH_HEADER_VALUE);
   
@@ -1128,7 +1145,7 @@ void publishHeartbeat() {
   StaticJsonDocument<1024> doc;
   doc["device_uuid"] = deviceUUID;
   doc["device_type"] = "actuator";
-  doc["firmware_version"] = "4.1.2-FIXED";
+  doc["firmware_version"] = "4.1.3-COMPLETE";
   doc["timestamp"] = getTimestamp();
   
   // Status
