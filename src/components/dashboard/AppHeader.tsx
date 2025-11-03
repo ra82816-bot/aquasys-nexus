@@ -25,7 +25,7 @@ export const AppHeader = ({ onLogout, onNavigate, currentTab, onTabChange }: App
     { id: "charts", label: "Gráficos", icon: BarChart3, isDashboardTab: true },
     { id: "ai", label: "IA", icon: Brain, isDashboardTab: true },
     { id: "relays", label: "Relés", icon: Settings, isDashboardTab: true },
-    { id: "devices", label: "Dispositivos", icon: Cpu, isDashboardTab: true },
+    { id: "devices", label: "Dispositivos", icon: Cpu, route: "/devices" },
     { id: "plants", label: "Plantas", icon: Sprout, route: "/plants" },
     { id: "camera", label: "Câmera", icon: Camera, route: "/camera" },
     { id: "connections", label: "Conexões", icon: Wifi, route: "/connections" },
