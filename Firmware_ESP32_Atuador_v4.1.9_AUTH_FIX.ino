@@ -1,10 +1,14 @@
 /*
- * AquaSys Nexus - Actuator Module v4.1.9-AUTH-FIX
- * ================================================
- * CORREÇÕES v4.1.9:
- * - ✅ CRÍTICO: Corrigido certificado SSL (Supabase ≠ HiveMQ)
- * - ✅ CRÍTICO: Corrigido parsing JSON da autenticação (mqtt_config.*)
- * - ✅ Adicionado modo SSL insecure para debug
+ * AquaSys Nexus - Actuator Module v4.2.0-NTP-FIX
+ * ===============================================
+ * CORREÇÕES v4.2.0:
+ * - ✅ CRÍTICO: NTP agora sincroniza ANTES da autenticação SSL
+ * - ✅ CRÍTICO: Aguarda sincronização NTP antes de validar certificados
+ * 
+ * Correções anteriores (v4.1.9):
+ * - Certificado SSL Supabase correto (Let's Encrypt ISRG Root X1)
+ * - Parsing JSON mqtt_config.username/password
+ * - Modo SSL insecure para debug
  */
 
 // ==================== INCLUDES ====================
@@ -289,7 +293,7 @@ void setup() {
   delay(1000);
   
   initWatchdog();
-  logMessage(LOG_INFO, "=== AquaSys Actuator v4.1.9-AUTH-FIX ===");
+  logMessage(LOG_INFO, "=== AquaSys Actuator v4.2.0-NTP-FIX ===");
 
   generateDeviceUUID();
   logMessage(LOG_INFO, "Device UUID: " + deviceUUID);
@@ -300,6 +304,33 @@ void setup() {
   esp_task_wdt_reset();
   setupWiFi();
 
+  // ✅ CRÍTICO: Sincronizar NTP ANTES da autenticação SSL
+  if (wifiConnected && !apMode) {
+    esp_task_wdt_reset();
+    logMessage(LOG_INFO, "Sincronizando NTP...");
+    setupNTP();
+    
+    // Aguardar sincronização NTP (máx 10s)
+    int ntpAttempts = 0;
+    while (ntpAttempts < 20) {
+      struct tm timeinfo;
+      if (getLocalTime(&timeinfo)) {
+        logMessage(LOG_INFO, "NTP sincronizado: " + getTimestamp());
+        break;
+      }
+      delay(500);
+      ntpAttempts++;
+      if (ntpAttempts % 4 == 0) {
+        esp_task_wdt_reset();
+      }
+    }
+    
+    if (ntpAttempts >= 20) {
+      logMessage(LOG_WARN, "NTP não sincronizou em 10s - prosseguindo mesmo assim");
+    }
+  }
+
+  // Autenticação só após NTP estar sincronizado
   if (wifiConnected && !apMode) {
     esp_task_wdt_reset();
     authCompleted = authenticateDevice();
@@ -309,11 +340,6 @@ void setup() {
     } else {
       authFailureCount = 0;
     }
-  }
-
-  if (wifiConnected && !apMode) {
-    esp_task_wdt_reset();
-    setupNTP();
   }
 
   if (authCompleted) {
@@ -962,7 +988,7 @@ bool authenticateDevice() {
 
   StaticJsonDocument<256> doc;
   doc["device_uuid"] = deviceUUID;
-  doc["firmware_version"] = "4.1.9";
+  doc["firmware_version"] = "4.2.0";
 
   String requestBody;
   serializeJson(doc, requestBody);
