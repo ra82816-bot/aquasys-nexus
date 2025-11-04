@@ -1,3 +1,13 @@
+/**
+ * DEPRECATED: Esta edge function não é mais utilizada
+ * 
+ * Controle de relés agora é feito via MQTT direto do frontend:
+ * Frontend → MQTT (aquasys/relay/command) → ESP32 → MQTT (aquasys/relay/status) → Frontend
+ * 
+ * Esta função foi mantida apenas para referência histórica.
+ * Pode ser removida em versões futuras.
+ */
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 

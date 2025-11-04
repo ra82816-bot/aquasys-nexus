@@ -117,25 +117,46 @@ export const useMqtt = () => {
   }, []);
 
   const publish = useCallback(
-    (topic: string, message: any, options = { qos: 1 as 0 | 1 | 2 }) => {
-      return new Promise<void>((resolve, reject) => {
-        if (!clientRef.current?.connected) {
-          reject(new Error('MQTT não conectado'));
-          return;
-        }
+    async (topic: string, message: any, options = { qos: 1 as 0 | 1 | 2 }) => {
+      let attempts = 0;
+      const maxRetries = 3;
+      
+      while (attempts < maxRetries) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            if (!clientRef.current?.connected) {
+              reject(new Error('MQTT não conectado'));
+              return;
+            }
 
-        const payload = typeof message === 'string' ? message : JSON.stringify(message);
-        
-        clientRef.current.publish(topic, payload, options, (error) => {
-          if (error) {
-            console.error('Erro ao publicar:', error);
-            reject(error);
-          } else {
-            console.log('✅ Mensagem publicada:', { topic, message });
-            resolve();
+            const payload = typeof message === 'string' ? message : JSON.stringify(message);
+            
+            console.log(`📤 [Tentativa ${attempts + 1}/${maxRetries}] Publicando no tópico ${topic}:`, payload);
+            
+            clientRef.current.publish(topic, payload, options, (error) => {
+              if (error) {
+                console.error('Erro ao publicar:', error);
+                reject(error);
+              } else {
+                console.log('✅ Mensagem publicada:', { topic, message });
+                resolve();
+              }
+            });
+          });
+          
+          return; // Sucesso - sair do loop
+        } catch (error) {
+          attempts++;
+          if (attempts >= maxRetries) {
+            console.error(`❌ Falha após ${maxRetries} tentativas`);
+            throw error;
           }
-        });
-      });
+          
+          const backoffMs = 1000 * attempts;
+          console.warn(`⚠️ Tentativa ${attempts}/${maxRetries} falhou, aguardando ${backoffMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+        }
+      }
     },
     []
   );
@@ -281,9 +302,17 @@ export const useMqtt = () => {
       console.log(`📤 Enviando comando para relé ${relayIndex} (índice ${relayIndex - 1}):`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        console.log('✅ Comando enviado com sucesso');
+        
+        // Registrar no event_logs para auditoria
+        await supabase.from('event_logs').insert({
+          type: 'relay_command',
+          message: `Relé ${relayIndex} → ${command ? 'LIGADO' : 'DESLIGADO'}`,
+          metadata: { relay_index: relayIndex, command, timestamp: new Date().toISOString() }
+        });
+        
+        console.log(`✅ Comando de relé registrado no log de eventos`);
       } catch (error) {
-        console.error('❌ Erro ao enviar comando:', error);
+        console.error('❌ Erro ao publicar comando de relé:', error);
         throw error;
       }
     },

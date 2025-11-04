@@ -116,26 +116,30 @@ useEffect(() => {
 ✅ **Conexão WebSocket segura** com autenticação  
 ✅ **Subscribe automático** em tópicos relevantes  
 ✅ **Publish de comandos** para relés  
-✅ **Reconexão automática** em caso de perda de conexão  
+✅ **Reconexão automática** com retry exponencial (1s, 2s, 3s)  
 ✅ **Tratamento de erros** com toast notifications  
 ✅ **Context API** para compartilhar conexão globalmente  
 ✅ **TypeScript** com tipos completos  
+✅ **Auditoria completa** - Comandos registrados em `event_logs`  
 
 ## 🔄 Fluxo de comunicação
 
 ```
 Frontend (React) ←→ MQTT Broker (HiveMQ Cloud) ←→ ESP32
          ↓
-   Supabase (apenas para armazenamento histórico)
+   Supabase (armazenamento histórico + auditoria)
 ```
 
 ### Tópicos MQTT:
 - **Subscribe:**
   - `aquasys/sensors/all` - Recebe dados dos sensores
   - `aquasys/relay/status` - Recebe status dos relés
+  - `aquasys/heartbeat` - Recebe health check dos dispositivos
 
 - **Publish:**
-  - `aquasys/relay/commands` - Envia comandos para relés
+  - `aquasys/relay/command` - Envia comandos para relés
+  - Formato: `{"relay": 0, "state": true}` (relay 0-7, state true/false)
+  - Retry automático: 3 tentativas com backoff exponencial
 
 ## 🧪 Como testar
 
@@ -163,8 +167,9 @@ Após confirmar que tudo funciona:
 - ❌ `mqtt-bridge/bridge.py` (não é mais necessário)
 - ❌ `mqtt-bridge/requirements.txt`
 - ❌ Edge Function `mqtt-ping` (se não usar mais)
+- ❌ Edge Function `relay-control` (DEPRECIADA - comandos via MQTT direto)
 
-> ⚠️ **Mantenha:** Edge Functions `mqtt-collector` e `relay-control` ainda são úteis para histórico no Supabase.
+> ⚠️ **Mantenha:** Edge Function `mqtt-collector` ainda é útil para armazenar histórico no Supabase.
 
 ## 🚨 Troubleshooting
 

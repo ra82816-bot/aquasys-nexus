@@ -31,10 +31,17 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       if (lastMessage.payload[relayKey] !== undefined) {
         setCommandStatus('confirmed');
         setIsLoading(false);
+        
+        // Toast de sucesso ao confirmar
+        toast({
+          title: "✅ Confirmado",
+          description: `Relé ${relayIndex} ${isOn ? 'ligado' : 'desligado'} com sucesso`,
+        });
+        
         setTimeout(() => setCommandStatus('idle'), 2000);
       }
     }
-  }, [lastMessage, commandStatus, relayIndex]);
+  }, [lastMessage, commandStatus, relayIndex, isOn, toast]);
 
   const handleToggle = async () => {
     if (!isConnected) {
@@ -53,7 +60,12 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       const newState = !isOn;
       await publishRelayCommand(relayIndex, newState);
       
-      // Timeout de 5 segundos para confirmação
+      toast({
+        title: "Comando enviado",
+        description: `Aguardando confirmação do relé ${relayIndex}...`,
+      });
+      
+      // Timeout de 10 segundos para confirmação (aumentado de 5s)
       setTimeout(() => {
         if (commandStatus === 'pending') {
           setCommandStatus('idle');
@@ -64,7 +76,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
             variant: "destructive",
           });
         }
-      }, 5000);
+      }, 10000);
       
     } catch (error) {
       setCommandStatus('idle');

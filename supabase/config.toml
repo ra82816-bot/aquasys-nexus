@@ -6,8 +6,9 @@ verify_jwt = false
 [functions.mqtt-ping]
 verify_jwt = false
 
-[functions.relay-control]
-verify_jwt = false
+# [functions.relay-control]
+# verify_jwt = false
+# DEPRECATED: Relay control agora é feito via MQTT direto do frontend
 
 [functions.export-readings]
 verify_jwt = false
