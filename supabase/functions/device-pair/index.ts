@@ -18,21 +18,30 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
+    // Cliente para verificar autenticação do usuário
+    const authToken = req.headers.get('Authorization');
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: 'Não autenticado' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseAuth = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       {
         auth: {
           persistSession: false,
         },
         global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
+          headers: { Authorization: authToken },
         },
       }
     );
 
     // Verificar autenticação
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     
     if (authError || !user) {
       console.error('Auth error:', authError);
@@ -45,6 +54,17 @@ serve(async (req) => {
     const { device_uuid, device_type, firmware_version }: PairRequest = await req.json();
 
     console.log(`Pairing device ${device_uuid} for user ${user.id}`);
+
+    // Cliente com service role para operações no banco
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          persistSession: false,
+        },
+      }
+    );
 
     // Verificar se o dispositivo já está registrado
     const { data: existingDevice } = await supabase
