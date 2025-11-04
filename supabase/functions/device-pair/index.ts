@@ -74,16 +74,33 @@ serve(async (req) => {
       .single();
 
     if (existingDevice) {
-      // Verificar se já está vinculado a outro usuário
+      // Verificar se já está vinculado a este usuário
       const owners = existingDevice.device_owners as any[];
+      
       if (owners && owners.length > 0) {
-        return new Response(
-          JSON.stringify({ 
-            error: 'Dispositivo já vinculado a outra conta',
-            code: 'DEVICE_ALREADY_PAIRED'
-          }),
-          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        // Verificar se é o usuário atual
+        const isCurrentUser = owners.some((owner: any) => owner.user_id === user.id);
+        
+        if (isCurrentUser) {
+          // Dispositivo já vinculado a este usuário - retornar sucesso
+          return new Response(
+            JSON.stringify({ 
+              success: true, 
+              device_id: existingDevice.id,
+              message: 'Dispositivo já está vinculado à sua conta'
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        } else {
+          // Dispositivo vinculado a outro usuário
+          return new Response(
+            JSON.stringify({ 
+              error: 'Dispositivo já vinculado a outra conta',
+              code: 'DEVICE_ALREADY_PAIRED'
+            }),
+            { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
       }
 
       // Dispositivo existe mas não tem owner, vincular
