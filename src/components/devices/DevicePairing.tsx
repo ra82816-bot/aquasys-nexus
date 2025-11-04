@@ -90,13 +90,13 @@ export const DevicePairing = () => {
           <Label htmlFor="device-uuid">UUID do Dispositivo</Label>
           <Input
             id="device-uuid"
-            placeholder="HYDRO-XXXX-XXXX-XXXX"
+            placeholder="ACT-XXXXXXXXXXXX ou SEN-XXXXXXXXXXXX"
             value={deviceUuid}
             onChange={(e) => setDeviceUuid(e.target.value.toUpperCase())}
             disabled={isLoading}
           />
           <p className="text-sm text-muted-foreground">
-            Formato: HYDRO-XXXX-XXXX-XXXX
+            Formato: ACT-XXXXXXXXXXXX (Atuador) ou SEN-XXXXXXXXXXXX (Sensor)
           </p>
         </div>
 
@@ -156,10 +156,14 @@ export const DevicePairing = () => {
           <p className="text-sm font-medium">Como encontrar o UUID:</p>
           <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
             <li>Ligue o módulo ESP32</li>
-            <li>O UUID aparecerá no display OLED</li>
+            <li>O UUID aparecerá no Serial Monitor (formato: ACT-XXXX ou SEN-XXXX)</li>
             <li>Ou acesse o modo AP e visualize na página web</li>
             <li>Digite o UUID acima para vincular à sua conta</li>
           </ol>
+          <div className="mt-3 pt-3 border-t">
+            <p className="text-sm font-medium">Exemplo:</p>
+            <code className="text-xs bg-background px-2 py-1 rounded">ACT-6CC84005C7C0</code>
+          </div>
         </div>
       </CardContent>
     </Card>
