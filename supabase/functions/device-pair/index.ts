@@ -69,20 +69,22 @@ serve(async (req) => {
     // Verificar se o dispositivo já está registrado
     const { data: existingDevice } = await supabase
       .from('devices')
-      .select('id, device_owners(user_id)')
+      .select('id')
       .eq('device_uuid', device_uuid)
-      .single();
+      .maybeSingle();
 
     if (existingDevice) {
-      // Verificar se já está vinculado a este usuário
-      const owners = existingDevice.device_owners as any[];
+      // Verificar se já existe vínculo com este usuário
+      const { data: existingOwnership } = await supabase
+        .from('device_owners')
+        .select('user_id')
+        .eq('device_id', existingDevice.id)
+        .maybeSingle();
       
-      if (owners && owners.length > 0) {
-        // Verificar se é o usuário atual
-        const isCurrentUser = owners.some((owner: any) => owner.user_id === user.id);
-        
-        if (isCurrentUser) {
+      if (existingOwnership) {
+        if (existingOwnership.user_id === user.id) {
           // Dispositivo já vinculado a este usuário - retornar sucesso
+          console.log(`Device ${device_uuid} already paired to user ${user.id}`);
           return new Response(
             JSON.stringify({ 
               success: true, 
@@ -119,6 +121,7 @@ serve(async (req) => {
         );
       }
 
+      console.log(`Device ${device_uuid} successfully paired to user ${user.id}`);
       return new Response(
         JSON.stringify({ 
           success: true, 
