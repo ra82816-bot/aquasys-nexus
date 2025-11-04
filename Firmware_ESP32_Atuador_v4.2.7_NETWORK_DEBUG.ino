@@ -410,15 +410,24 @@ void loop() {
 // FUNÇÃO: initWatchdog()
 // ============================================================================
 void initWatchdog() {
-  // Configurar watchdog para ESP-IDF 5.5+ (nova API)
-  esp_task_wdt_config_t wdt_config = {
-    .timeout_ms = WDT_TIMEOUT * 1000,
-    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,  // Todos os cores
-    .trigger_panic = true
-  };
-  esp_task_wdt_init(&wdt_config);
+  // Verificar se watchdog já foi inicializado pelo sistema
+  esp_err_t wdt_status = esp_task_wdt_status(NULL);
+  
+  if (wdt_status == ESP_ERR_NOT_FOUND) {
+    // Watchdog não inicializado, configurar agora
+    esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = WDT_TIMEOUT * 1000,
+      .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+      .trigger_panic = true
+    };
+    esp_task_wdt_init(&wdt_config);
+    logMessage(LOG_INFO, "Watchdog inicializado (" + String(WDT_TIMEOUT) + "s)");
+  } else {
+    logMessage(LOG_INFO, "Watchdog já inicializado pelo sistema");
+  }
+  
+  // Adicionar task atual ao watchdog
   esp_task_wdt_add(NULL);
-  logMessage(LOG_INFO, "Watchdog inicializado (" + String(WDT_TIMEOUT) + "s)");
 }
 
 // ============================================================================
@@ -592,6 +601,7 @@ void setupWiFi() {
   
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    esp_task_wdt_reset(); // ✅ Alimentar watchdog durante tentativas
     delay(500);
     Serial.print(".");
     attempts++;
