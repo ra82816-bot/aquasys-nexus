@@ -2,10 +2,23 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Activity, WifiOff, Cpu, Bluetooth, Wifi, Database } from "lucide-react";
+import { Loader2, Activity, WifiOff, Cpu, Bluetooth, Wifi, Database, Unlink } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface Device {
   id: string;
@@ -28,6 +41,7 @@ export const DeviceList = () => {
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceHealth, setDeviceHealth] = useState<Record<string, DeviceHealth>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
     loadDevices();
@@ -106,6 +120,32 @@ export const DeviceList = () => {
     if (heapKB > 100) return { label: "Ótimo", value: 100, color: "text-green-500" };
     if (heapKB > 50) return { label: "Bom", value: 75, color: "text-yellow-500" };
     return { label: "Baixa", value: 25, color: "text-red-500" };
+  };
+
+  const handleUnpairDevice = async (deviceId: string, deviceUuid: string) => {
+    try {
+      const { error } = await supabase
+        .from("device_owners")
+        .delete()
+        .eq("device_id", deviceId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Dispositivo desvinculado",
+        description: `${deviceUuid} foi removido da sua conta`,
+      });
+
+      // Recarregar lista
+      loadDevices();
+    } catch (error: any) {
+      console.error("Erro ao desvincular:", error);
+      toast({
+        title: "Erro ao desvincular",
+        description: error.message || "Não foi possível desvincular o dispositivo",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -240,6 +280,37 @@ export const DeviceList = () => {
                 <div className="flex items-center justify-between text-sm pt-2 border-t">
                   <span className="text-muted-foreground">Última atividade:</span>
                   <span className="font-medium">{lastSeenText}</span>
+                </div>
+
+                {/* Botão para desvincular */}
+                <div className="pt-2 border-t">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="w-full">
+                        <Unlink className="h-4 w-4 mr-2" />
+                        Desvincular Dispositivo
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Desvincular dispositivo?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Tem certeza que deseja desvincular <strong>{device.device_uuid}</strong>?
+                          <br /><br />
+                          O dispositivo será removido da sua conta e poderá ser vinculado novamente ou por outro usuário.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => handleUnpairDevice(device.id, device.device_uuid)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Desvincular
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </CardContent>
             </Card>
