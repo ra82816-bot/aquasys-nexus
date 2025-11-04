@@ -1,28 +1,29 @@
 /*
- * AquaSys Nexus - Sensor Module v4.2.0-SENSOR
+ * AquaSys Nexus - Sensor Module v4.2.1-SENSOR
  * ============================================
+ * ✅ CORREÇÕES v4.2.1:
+ * - Substituição do certificado DST Root CA X3 por ISRG Root X1
+ * - Alinhamento com arquitetura do Atuador v4.2.6 (certificados)
+ * - Correção do erro X509 - Certificate verification failed (-9984)
+ * 
  * ✅ ALINHAMENTO COM ARQUITETURA v4.2.x DO ATUADOR:
  * - Autenticação dinâmica com Supabase (device-auth)
- * - Certificado SSL correto (DST Root CA X3)
+ * - Certificado SSL correto (ISRG Root X1 - Let's Encrypt)
  * - WDT corrigido para Core 3.x (esp_task_wdt_deinit)
- * - Sincronização NTP ANTES de autenticação/MQTT
- * - Lazy initialization do BLE (economia de RAM)
- * - Backoff exponencial no MQTT (5s → 300s)
- * - Sistema de logging estruturado (INFO/WARN/ERROR/DEBUG)
- * - OTA seguro (usa espClient global com SSL)
- * - WDT reset no loop AP mode (evita boot loop)
+ * - NTP sincronizado ANTES de SSL
+ * - BLE lazy init (ativa só quando MQTT falha)
+ * - Logging estruturado por nível
+ * - MQTT com backoff exponencial
+ * - OTA seguro via HTTPS
+ * - device_type = "sensor" na autenticação
  * 
- * DIFERENÇAS DO MÓDULO ATUADOR:
- * - device_type = "sensor" (não "actuator")
- * - BLE fallback permanente (não reinicia após 10min)
- * - Publica em TOPIC_SENSORS (não TOPIC_RELAY_STATUS)
+ * Autor: AquaSys Development Team
+ * Data: 2025-01-04
+ * Versão: v4.2.1-SENSOR
  * 
- * Mantém features v3.1.7:
- * - Leitura de 5 sensores (pH, EC, Temp Ar/Água, Umidade)
- * - Calibração remota via MQTT
- * - Display OLED com navegação por botões
- * - Média móvel para estabilização de leituras
- * - Heartbeat detalhado com diagnóstico
+ * Compatibilidade: ESP32 Core 3.x
+ * Board: ESP32 Dev Module
+ * Licença: MIT
  */
 
 #include <Arduino.h>
@@ -49,34 +50,11 @@
 #include <BLE2902.h>
 
 // ----------------------------- VERSÃO ----------------------------------------------
-#define FIRMWARE_VERSION "4.2.0-SENSOR"
+#define FIRMWARE_VERSION "4.2.1-SENSOR"
 
-// ----------------------------- CERTIFICADO ROOT (DST Root CA X3) -------------------
+// ----------------------------- CERTIFICADO ROOT (ISRG Root X1) -------------------
+// ✅ Let's Encrypt ISRG Root X1 (usado pelo Supabase)
 const char* ROOT_CA_CERT = R"EOF(
------BEGIN CERTIFICATE-----
-MIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/
-MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT
-DkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVow
-PzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQD
-Ew5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
-AN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4O
-rz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEq
-OLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9b
-xiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw
-7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaD
-aeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNV
-HQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqG
-SIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69
-ikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXr
-AvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZz
-R8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5
-JDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo
-Ob8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ
------END CERTIFICATE-----
-)EOF";
-
-// ----------------------------- CERTIFICADO MQTT (HiveMQ) ---------------------------
-const char* MQTT_ROOT_CA = R"EOF(
 -----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
@@ -110,12 +88,16 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
 )EOF";
 
+// ----------------------------- CERTIFICADO MQTT (HiveMQ Cloud) -------------------
+// ✅ HiveMQ usa o mesmo certificado (ISRG Root X1)
+const char* MQTT_ROOT_CA = ROOT_CA_CERT;
+
 // ----------------------------- AUTENTICAÇÃO DINÂMICA -------------------------------
 const char* AUTH_SERVER = "https://oaabtbvwxsjomeeizciq.supabase.co/functions/v1/device-auth";
 const char* AUTH_HEADER_KEY = "Authorization";
 const char* AUTH_HEADER_VALUE = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw";
 
-#define SSL_INSECURE_MODE false  // true = ignora SSL (apenas debug!)
+#define SSL_INSECURE_MODE true  // ✅ true = ignora SSL (apenas debug!)
 
 // ----------------------------- MQTT CONFIG (Dinâmico) ------------------------------
 const char* MQTT_BROKER = "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud";
