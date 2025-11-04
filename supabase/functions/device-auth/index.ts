@@ -58,21 +58,25 @@ serve(async (req) => {
       );
     }
 
-    // Update firmware version if provided
-    if (firmware_version && firmware_version !== device.firmware_version) {
-      await supabaseClient
-        .from('devices')
-        .update({ firmware_version, last_seen_at: new Date().toISOString() })
-        .eq('device_uuid', device_uuid);
-      
-      console.log(`Updated firmware version to ${firmware_version}`);
+    // ✅ FASE 1: Sempre atualizar last_seen_at e firmware_version na autenticação
+    const updateData: any = {
+      last_seen_at: new Date().toISOString()
+    };
+    
+    if (firmware_version) {
+      updateData.firmware_version = firmware_version;
     }
-
-    // Update last seen
-    await supabaseClient
+    
+    const { error: updateError } = await supabaseClient
       .from('devices')
-      .update({ last_seen_at: new Date().toISOString() })
+      .update(updateData)
       .eq('device_uuid', device_uuid);
+    
+    if (updateError) {
+      console.error('Error updating device:', updateError);
+    } else {
+      console.log(`Updated device: last_seen_at and firmware_version=${firmware_version || 'unchanged'}`);
+    }
 
     // Return MQTT credentials
     const response = {

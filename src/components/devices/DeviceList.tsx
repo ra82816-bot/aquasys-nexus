@@ -44,6 +44,7 @@ export const DeviceList = () => {
 
   const loadDevices = async () => {
     try {
+      // ✅ FASE 1: RLS já filtra dispositivos do usuário via device_owners
       const { data, error } = await supabase
         .from("devices")
         .select("*")
@@ -61,7 +62,7 @@ export const DeviceList = () => {
 
   const loadDeviceHealth = async () => {
     try {
-      // Buscar último health de cada dispositivo
+      // ✅ FASE 1: Buscar último health de cada dispositivo
       const { data, error } = await supabase
         .from("device_health")
         .select("device_id, wifi_rssi, mqtt_connected, free_heap, sensor_ph_valid, sensor_ec_valid")
@@ -87,7 +88,8 @@ export const DeviceList = () => {
     if (!lastSeen) return false;
     const lastSeenTime = new Date(lastSeen).getTime();
     const now = Date.now();
-    return now - lastSeenTime < 120000; // Online se visto nos últimos 2 minutos
+    // ✅ FASE 1: Online se visto nos últimos 5 minutos (device-auth + heartbeats)
+    return now - lastSeenTime < 300000; // 5 minutos
   };
 
   const getSignalStrength = (rssi: number | null) => {

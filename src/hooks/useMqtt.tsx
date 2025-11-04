@@ -45,6 +45,7 @@ export const useMqtt = () => {
         MQTT_CONFIG.topics.sensors,
         MQTT_CONFIG.topics.relayStatus,
         'aquasys/relay/status/wifi',
+        'aquasys/heartbeat', // ✅ FASE 1: Subscribe em heartbeat
       ];
       
       client.subscribe(topics, { qos: 1 }, (err) => {
@@ -75,6 +76,8 @@ export const useMqtt = () => {
           await saveSensorData(data);
         } else if (topic === MQTT_CONFIG.topics.relayStatus) {
           await saveRelayStatus(data);
+        } else if (topic === 'aquasys/heartbeat') {
+          await saveDeviceHealth(data);
         }
       } catch (error) {
         console.error('Erro ao processar mensagem:', error);
@@ -212,6 +215,58 @@ export const useMqtt = () => {
       }
     } catch (error) {
       console.error('❌ Erro ao chamar edge function:', error);
+    }
+  }, []);
+
+  // ✅ FASE 1: Salvar device health (heartbeat)
+  const saveDeviceHealth = useCallback(async (data: any) => {
+    try {
+      console.log('💾 Processando heartbeat...', data);
+      
+      const deviceUuid = data.device_uuid || 'unknown';
+      
+      // 1. Mapear UUID → device_id
+      const { data: device, error: deviceError } = await supabase
+        .from('devices')
+        .select('id')
+        .eq('device_uuid', deviceUuid)
+        .single();
+      
+      if (deviceError || !device) {
+        console.error('❌ Device não encontrado:', deviceUuid);
+        return;
+      }
+      
+      // 2. Extrair métricas do heartbeat
+      const healthData = {
+        device_id: device.id,
+        uptime_seconds: Math.floor((data.uptime_ms || 0) / 1000),
+        wifi_rssi: data.status?.rssi || 0,
+        wifi_ssid: data.status?.ip_address || null, // Temporário até firmware enviar SSID
+        wifi_reconnects: 0, // Firmware v4.2.3 não envia ainda
+        mqtt_connected: data.status?.mqtt_connected ?? false,
+        mqtt_failed_attempts: 0,
+        free_heap: data.memory?.free_heap || 0,
+        min_free_heap: data.memory?.min_free_heap || 0,
+        sensor_ph_valid: null,
+        sensor_ec_valid: null,
+        sensor_temp_valid: null,
+        sensor_humidity_valid: null,
+        sensor_water_temp_valid: null,
+      };
+      
+      // 3. Salvar no banco
+      const { error: insertError } = await supabase
+        .from('device_health')
+        .insert(healthData);
+      
+      if (insertError) {
+        console.error('❌ Erro ao salvar device health:', insertError);
+      } else {
+        console.log('✅ Device health salvo:', deviceUuid);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao processar heartbeat:', error);
     }
   }, []);
 
