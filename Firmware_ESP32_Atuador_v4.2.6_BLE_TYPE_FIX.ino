@@ -1,11 +1,16 @@
 /*
- * AquaSys Nexus - Actuator Module v4.2.5-BLE-FIX
+ * AquaSys Nexus - Actuator Module v4.2.6-BLE-TYPE-FIX
  * ==============================================
+ * ✅ CORREÇÕES v4.2.6:
+ * - Correção definitiva de tipo BLE readValue()
+ * - readValue() retorna Arduino String (não std::string)
+ * - Simplificação do código BLE sem conversões desnecessárias
+ * - Fix compilação: conversion from 'String' to non-scalar type 'std::string'
+ * 
  * ✅ CORREÇÕES v4.2.5:
- * - Correção de tipos BLE (std::string vs String)
+ * - Correção de tipos BLE em startBLEScan()
  * - Compatibilidade com Arduino String nas funções BLE
  * - Fix compilação: 'class String' has no member named 'find'
- * - Fix compilação: conversão std::string para String
  * 
  * ✅ CORREÇÕES v4.2.4:
  * - Clientes SSL separados para HTTP (Supabase) e MQTT (HiveMQ)
@@ -14,9 +19,10 @@
  * - Correção do erro PEM -4396 (conflito de estado SSL entre serviços)
  * - Uso de memória: +8KB RAM (2 clientes SSL) para maior estabilidade
  * 
- * IMPORTANTE - Compatibilidade de Tipos:
- * - BLE library retorna std::string, Arduino usa String
- * - Sempre converter com .c_str() ou String() conforme necessário
+ * IMPORTANTE - Tipos da Biblioteca BLE:
+ * - BLEAdvertisedDevice.getName() → retorna std::string
+ * - BLERemoteCharacteristic.readValue() → retorna Arduino String
+ * - Sempre verificar o tipo de retorno antes de converter
  * 
  * Correções anteriores mantidas:
  * - NTP sincroniza ANTES da autenticação SSL (v4.2.0)
@@ -1406,10 +1412,9 @@ void readSensorDataBLE() {
     return;
   }
   
-  // IMPORTANTE: readValue() retorna std::string, converter para String do Arduino
-  std::string value_std = pRemoteCharacteristic->readValue();
-  if (value_std.length() > 0) {
-    String data = String(value_std.c_str());
+  // IMPORTANTE: readValue() retorna Arduino String diretamente
+  String data = pRemoteCharacteristic->readValue();
+  if (data.length() > 0) {
     
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, data);
