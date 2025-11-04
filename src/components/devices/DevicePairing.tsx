@@ -50,6 +50,18 @@ export const DevicePairing = () => {
         return;
       }
 
+      // Verificar se já estava vinculado a este usuário
+      if (data.already_paired) {
+        toast({
+          title: "Dispositivo já vinculado",
+          description: "Este dispositivo já está na sua conta",
+        });
+        
+        // Recarregar página para atualizar lista
+        setTimeout(() => window.location.reload(), 1500);
+        return;
+      }
+
       toast({
         title: "Sucesso!",
         description: data.message || "Dispositivo vinculado com sucesso",

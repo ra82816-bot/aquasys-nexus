@@ -89,12 +89,14 @@ serve(async (req) => {
             JSON.stringify({ 
               success: true, 
               device_id: existingDevice.id,
+              already_paired: true,
               message: 'Dispositivo já está vinculado à sua conta'
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         } else {
           // Dispositivo vinculado a outro usuário
+          console.log(`Device ${device_uuid} already paired to different user`);
           return new Response(
             JSON.stringify({ 
               error: 'Dispositivo já vinculado a outra conta',
