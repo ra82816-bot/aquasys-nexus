@@ -30,3 +30,6 @@ verify_jwt = false
 
 [functions.chart-insights]
 verify_jwt = false
+
+[functions.device-auth]
+verify_jwt = false

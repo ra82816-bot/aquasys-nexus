@@ -17,6 +17,10 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const clientIP = req.headers.get('x-forwarded-for') || 
+                   req.headers.get('x-real-ip') || 
+                   'unknown';
+
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -28,6 +32,59 @@ serve(async (req) => {
         }
       }
     )
+
+    // Rate limiting: 10 requests per minute per IP
+    const rateLimitWindow = new Date(Date.now() - 60000); // 1 minute ago
+    const { data: rateCheck, error: rateError } = await supabaseClient
+      .from('mqtt_rate_limits')
+      .select('request_count, blocked_until')
+      .eq('endpoint', 'device-auth')
+      .eq('device_id', clientIP)
+      .gte('window_start', rateLimitWindow.toISOString())
+      .single();
+
+    // Check if IP is blocked
+    if (rateCheck?.blocked_until && new Date(rateCheck.blocked_until) > new Date()) {
+      console.warn(`⚠️  Rate limit: IP ${clientIP} is blocked until ${rateCheck.blocked_until}`);
+      return new Response(
+        JSON.stringify({ error: 'Too many requests. Please try again later.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Update or insert rate limit record
+    if (rateCheck && rateCheck.request_count >= 10) {
+      const blockUntil = new Date(Date.now() + 300000); // Block for 5 minutes
+      await supabaseClient
+        .from('mqtt_rate_limits')
+        .update({ 
+          blocked_until: blockUntil.toISOString(),
+          request_count: rateCheck.request_count + 1
+        })
+        .eq('endpoint', 'device-auth')
+        .eq('device_id', clientIP);
+      
+      console.warn(`⚠️  Rate limit exceeded: Blocking IP ${clientIP} until ${blockUntil.toISOString()}`);
+      return new Response(
+        JSON.stringify({ error: 'Too many requests. Blocked for 5 minutes.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } else if (rateCheck) {
+      await supabaseClient
+        .from('mqtt_rate_limits')
+        .update({ request_count: rateCheck.request_count + 1 })
+        .eq('endpoint', 'device-auth')
+        .eq('device_id', clientIP);
+    } else {
+      await supabaseClient
+        .from('mqtt_rate_limits')
+        .insert({
+          endpoint: 'device-auth',
+          device_id: clientIP,
+          request_count: 1,
+          window_start: new Date().toISOString()
+        });
+    }
 
     const { device_uuid, firmware_version } = await req.json() as AuthRequest;
 
@@ -48,7 +105,8 @@ serve(async (req) => {
       .single();
 
     if (deviceError || !device) {
-      console.error('Device not found:', deviceError);
+      console.error(`❌ Device not found: ${device_uuid} from IP ${clientIP}`);
+      console.error('Device error:', deviceError);
       return new Response(
         JSON.stringify({ 
           error: 'Device not registered',
@@ -75,7 +133,7 @@ serve(async (req) => {
     if (updateError) {
       console.error('Error updating device:', updateError);
     } else {
-      console.log(`Updated device: last_seen_at and firmware_version=${firmware_version || 'unchanged'}`);
+      console.log(`✅ Auth success: ${device_uuid} (v${firmware_version || device.firmware_version}) from IP ${clientIP}`);
     }
 
     // Return MQTT credentials
@@ -95,7 +153,7 @@ serve(async (req) => {
       }
     };
 
-    console.log(`Auth successful for ${device_uuid}`);
+    console.log(`🔐 Device authenticated: ${device_uuid} - last_seen updated`);
 
     return new Response(
       JSON.stringify(response),

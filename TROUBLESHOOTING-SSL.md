@@ -172,6 +172,48 @@ graph TD
 
 ---
 
+## 🔒 Erro HTTP 401: Autenticação Falhou
+
+### Sintomas
+```
+[DEBUG] HTTP Code: 401
+[ERROR] Autenticação falhou. HTTP: 401
+[WARN ] Auth falhou. Tentativas: 1
+```
+
+### Causa
+O ESP32 está tentando chamar a edge function `device-auth`, mas ela requer autenticação JWT por padrão.
+
+### ✅ Solução
+A edge function `device-auth` foi configurada como **pública** (não requer JWT) no `supabase/config.toml`:
+
+```toml
+[functions.device-auth]
+verify_jwt = false
+```
+
+**Por que isso é seguro?**
+1. A função valida o `device_uuid` contra o banco de dados
+2. Apenas dispositivos registrados (com `mqtt_password_hash` válido) recebem credenciais
+3. Rate limiting protege contra ataques de força bruta (10 req/min por IP)
+4. Todos os acessos são logados com IP do cliente
+
+### 🔍 Verificar no Log
+Após o fix, você deve ver:
+```
+[DEBUG] HTTP Code: 200
+✅ Auth success: ACT-XXXX (v4.2.3) from IP 192.168.0.223
+```
+
+### 🚨 Troubleshooting
+Se ainda receber 401:
+1. Verifique se o dispositivo está registrado no banco (`devices` table)
+2. Confirme que `device_uuid` está correto no firmware
+3. Verifique os logs da edge function no backend
+4. Certifique-se que `verify_jwt = false` está no `config.toml`
+
+---
+
 ## ✅ Checklist de Validação SSL
 
 ### Antes de Produção:
