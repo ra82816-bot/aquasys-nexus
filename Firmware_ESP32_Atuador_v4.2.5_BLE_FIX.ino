@@ -1,12 +1,22 @@
 /*
- * AquaSys Nexus - Actuator Module v4.2.4-DUAL-SSL
+ * AquaSys Nexus - Actuator Module v4.2.5-BLE-FIX
  * ==============================================
+ * ✅ CORREÇÕES v4.2.5:
+ * - Correção de tipos BLE (std::string vs String)
+ * - Compatibilidade com Arduino String nas funções BLE
+ * - Fix compilação: 'class String' has no member named 'find'
+ * - Fix compilação: conversão std::string para String
+ * 
  * ✅ CORREÇÕES v4.2.4:
  * - Clientes SSL separados para HTTP (Supabase) e MQTT (HiveMQ)
  * - Gerenciamento independente de certificados SSL por serviço
  * - Suporte a modo insecure isolado por conexão
  * - Correção do erro PEM -4396 (conflito de estado SSL entre serviços)
  * - Uso de memória: +8KB RAM (2 clientes SSL) para maior estabilidade
+ * 
+ * IMPORTANTE - Compatibilidade de Tipos:
+ * - BLE library retorna std::string, Arduino usa String
+ * - Sempre converter com .c_str() ou String() conforme necessário
  * 
  * Correções anteriores mantidas:
  * - NTP sincroniza ANTES da autenticação SSL (v4.2.0)
@@ -1340,10 +1350,14 @@ void startBLEScan() {
     for (int i = 0; i < foundDevices->getCount(); i++) {
       BLEAdvertisedDevice device = foundDevices->getDevice(i);
       
-      if (device.haveName() && device.getName().find("AquaSys-Sensor") != std::string::npos) {
-        logMessage(LOG_INFO, "Sensor encontrado: " + String(device.getAddress().toString().c_str()));
-        connectToSensorBLE(String(device.getAddress().toString().c_str()));
-        break;
+      // IMPORTANTE: device.getName() retorna std::string, converter para String do Arduino
+      if (device.haveName()) {
+        String deviceName = String(device.getName().c_str());
+        if (deviceName.indexOf("AquaSys-Sensor") >= 0) {
+          logMessage(LOG_INFO, "Sensor encontrado: " + String(device.getAddress().toString().c_str()));
+          connectToSensorBLE(String(device.getAddress().toString().c_str()));
+          break;
+        }
       }
     }
   } else {
@@ -1392,9 +1406,10 @@ void readSensorDataBLE() {
     return;
   }
   
-  std::string value = pRemoteCharacteristic->readValue();
-  if (value.length() > 0) {
-    String data = String(value.c_str());
+  // IMPORTANTE: readValue() retorna std::string, converter para String do Arduino
+  std::string value_std = pRemoteCharacteristic->readValue();
+  if (value_std.length() > 0) {
+    String data = String(value_std.c_str());
     
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, data);
