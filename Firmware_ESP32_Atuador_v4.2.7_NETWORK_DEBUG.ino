@@ -410,7 +410,13 @@ void loop() {
 // FUNÇÃO: initWatchdog()
 // ============================================================================
 void initWatchdog() {
-  esp_task_wdt_init(WDT_TIMEOUT, true);
+  // Configurar watchdog para ESP-IDF 5.5+ (nova API)
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WDT_TIMEOUT * 1000,
+    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,  // Todos os cores
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
   logMessage(LOG_INFO, "Watchdog inicializado (" + String(WDT_TIMEOUT) + "s)");
 }
