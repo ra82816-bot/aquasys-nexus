@@ -1146,8 +1146,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
   
-  // ✅ COMANDO DE RELÉ (aceita "relay" OU "relay_index")
+  // ✅ Declarar todos os tópicos no início
   const char* topicRelayCommand = mqttCreds.valid ? mqttCreds.topic_relay_command : TOPIC_RELAY_COMMAND_FALLBACK;
+  const char* topicRelayConfig = mqttCreds.valid ? mqttCreds.topic_relay_config : TOPIC_RELAY_CONFIG_FALLBACK;
+  const char* topicCalibration = mqttCreds.valid ? mqttCreds.topic_calibration : TOPIC_CALIBRATION_FALLBACK;
+  const char* topicSensors = mqttCreds.valid ? mqttCreds.topic_sensors : TOPIC_SENSORS_FALLBACK;
+  
+  // ✅ COMANDO DE RELÉ (aceita "relay" OU "relay_index")
   if (strcmp(topic, topicRelayCommand) == 0) {
     logMessage(LOG_INFO, "🎯 Tópico de comando de relé detectado!");
     
@@ -1187,7 +1192,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // ✅ NOVO: CONFIGURAÇÃO DE RELÉS
-  const char* topicRelayConfig = mqttCreds.valid ? mqttCreds.topic_relay_config : TOPIC_RELAY_CONFIG_FALLBACK;
   else if (strcmp(topic, topicRelayConfig) == 0) {
     logMessage(LOG_INFO, "⚙️ Configuração de relé recebida!");
     
@@ -1224,7 +1228,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // ✅ NOVO: COMANDOS DE CALIBRAÇÃO
-  const char* topicCalibration = mqttCreds.valid ? mqttCreds.topic_calibration : TOPIC_CALIBRATION_FALLBACK;
   else if (strcmp(topic, topicCalibration) == 0) {
     logMessage(LOG_INFO, "🔬 Comando de calibração recebido!");
     
@@ -1240,7 +1243,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // Processar dados de sensores
-  const char* topicSensors = mqttCreds.valid ? mqttCreds.topic_sensors : TOPIC_SENSORS_FALLBACK;
   else if (strcmp(topic, topicSensors) == 0) {
     currentSensorData.ph = doc["ph"] | 0.0;
     currentSensorData.ec = doc["ec"] | 0.0;
