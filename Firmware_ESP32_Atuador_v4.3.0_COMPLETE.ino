@@ -44,7 +44,7 @@
 #define DEVICE_TYPE "ACTUATOR"
 
 // Pinos dos Relés (8 relés)
-const int RELAY_PINS[8] = {2, 4, 5, 12, 13, 14, 15, 16};
+const int RELAY_PINS[8] = {23, 5, 4, 13, 22, 21, 14, 12};
 
 // WiFi AP Mode
 #define AP_SSID_PREFIX "AquaSys-ACT-"

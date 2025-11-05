@@ -293,13 +293,13 @@ export const useMqtt = () => {
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
-      // ✅ Firmware v4.3-F1 espera índice 0-7 (não 1-8)
+      // ✅ relayIndex já vem como 0-7 do RelayCard
       const message = {
-        relay: relayIndex - 1, // Converte de 1-8 para 0-7
+        relay: relayIndex, // Índice 0-7 direto do banco
         state: command
       };
 
-      console.log(`📤 Enviando comando para relé ${relayIndex} (índice ${relayIndex - 1}):`, message);
+      console.log(`📤 Enviando comando para relé ${relayIndex + 1} (índice ${relayIndex}):`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         
@@ -321,13 +321,13 @@ export const useMqtt = () => {
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
-      // ✅ Firmware v4.3-F1 espera índice 0-7 (não 1-8)
+      // ✅ relayIndex já vem como 0-7 do componente
       const message = {
-        relay: relayIndex - 1, // Converte de 1-8 para 0-7
+        relay: relayIndex, // Índice 0-7 direto
         config: config
       };
 
-      console.log(`📤 Enviando configuração para relé ${relayIndex} (índice ${relayIndex - 1}):`, message);
+      console.log(`📤 Enviando configuração para relé ${relayIndex + 1} (índice ${relayIndex}):`, message);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         console.log('✅ Configuração enviada com sucesso');
@@ -341,12 +341,12 @@ export const useMqtt = () => {
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
-      // ✅ Firmware v4.3-F1 espera índice 0-7 (não 1-8)
+      // ✅ relayIndex já vem como 0-7 do componente
       const message = {
-        auto: relayIndex - 1 // Converte de 1-8 para 0-7
+        auto: relayIndex // Índice 0-7 direto
       };
 
-      console.log(`📤 Definindo modo automático para relé ${relayIndex} (índice ${relayIndex - 1})`);
+      console.log(`📤 Definindo modo automático para relé ${relayIndex + 1} (índice ${relayIndex})`);
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         console.log('✅ Modo automático definido com sucesso');
