@@ -1026,7 +1026,6 @@ void setupMQTT() {
   logMessage(LOG_INFO, "   Modo: " + String(mqttCreds.valid ? "Autenticado" : "Fallback"));
   logMessage(LOG_INFO, "TLS Timeout configurado: 20s");
 }
-}
 
 bool reconnectMQTT() {
   if (!wifiConnected) return false;
@@ -1148,7 +1147,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // ✅ COMANDO DE RELÉ (aceita "relay" OU "relay_index")
-  if (strcmp(topic, TOPIC_RELAY_COMMAND) == 0) {
+  const char* topicRelayCommand = mqttCreds.valid ? mqttCreds.topic_relay_command : TOPIC_RELAY_COMMAND_FALLBACK;
+  if (strcmp(topic, topicRelayCommand) == 0) {
     logMessage(LOG_INFO, "🎯 Tópico de comando de relé detectado!");
     
     // ✅ CORREÇÃO CRÍTICA: Aceitar AMBOS os formatos
@@ -1177,7 +1177,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     // ✅ Validar índice e aplicar comando
     if (relayIndex >= 0 && relayIndex < 8) {
       setRelay(relayIndex, state);
-      relays[relayIndex].mode = "manual";
+      // ✅ CORREÇÃO: Usar "unused" em vez de "manual" (enum válido)
+      relays[relayIndex].mode = "unused";
       publishRelayStatus();
       logMessage(LOG_INFO, "✅ Relé " + String(relayIndex) + " → " + (state ? "LIGADO" : "DESLIGADO"));
     } else {
@@ -1186,7 +1187,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // ✅ NOVO: CONFIGURAÇÃO DE RELÉS
-  else if (strcmp(topic, TOPIC_RELAY_CONFIG) == 0) {
+  const char* topicRelayConfig = mqttCreds.valid ? mqttCreds.topic_relay_config : TOPIC_RELAY_CONFIG_FALLBACK;
+  else if (strcmp(topic, topicRelayConfig) == 0) {
     logMessage(LOG_INFO, "⚙️ Configuração de relé recebida!");
     
     if (doc.containsKey("relay") || doc.containsKey("relay_index")) {
@@ -1222,7 +1224,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // ✅ NOVO: COMANDOS DE CALIBRAÇÃO
-  else if (strcmp(topic, TOPIC_CALIBRATION) == 0) {
+  const char* topicCalibration = mqttCreds.valid ? mqttCreds.topic_calibration : TOPIC_CALIBRATION_FALLBACK;
+  else if (strcmp(topic, topicCalibration) == 0) {
     logMessage(LOG_INFO, "🔬 Comando de calibração recebido!");
     
     String sensorType = doc["sensor_type"] | "";
@@ -1237,7 +1240,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   // Processar dados de sensores
-  else if (strcmp(topic, TOPIC_SENSORS) == 0) {
+  const char* topicSensors = mqttCreds.valid ? mqttCreds.topic_sensors : TOPIC_SENSORS_FALLBACK;
+  else if (strcmp(topic, topicSensors) == 0) {
     currentSensorData.ph = doc["ph"] | 0.0;
     currentSensorData.ec = doc["ec"] | 0.0;
     currentSensorData.air_temp = doc["air_temp"] | 0.0;
@@ -1263,11 +1267,11 @@ void publishRelayStatus() {
   // ✅ Usar tópico dinâmico ou fallback
   const char* topicToUse = mqttCreds.valid ? mqttCreds.topic_relay_status : TOPIC_RELAY_STATUS_FALLBACK;
   
-  // ✅ CORREÇÃO CRÍTICA: Formato plano esperado pelo app web
-  // App espera: {"relay1": true, "relay2": false, ...}
-  // NÃO: {"relays": [{"index": 0, "state": true}, ...]}
+  // ✅ CORREÇÃO CRÍTICA: Incluir relay0 para compatibilidade
+  // App espera relay0 (índice 0) até relay7 (índice 7)
+  // Backend mapeia automaticamente para relay1-relay8
   for (int i = 0; i < 8; i++) {
-    String relayKey = "relay" + String(i + 1); // relay1, relay2, ..., relay8
+    String relayKey = "relay" + String(i); // relay0, relay1, ..., relay7
     doc[relayKey] = relays[i].state;
   }
   
@@ -1529,7 +1533,8 @@ void saveRelayConfig() {
 void setRelay(int index, bool state) {
   if (index < 0 || index >= 8) return;
   
-  digitalWrite(RELAY_PINS[index], state ? HIGH : LOW);
+  // ✅ CORREÇÃO: Inverter lógica (relés são acionados por LOW)
+  digitalWrite(RELAY_PINS[index], state ? LOW : HIGH);
   relays[index].state = state;
   
   logMessage(LOG_INFO, "Relé " + String(index) + " → " + (state ? "ON" : "OFF"));

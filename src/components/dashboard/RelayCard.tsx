@@ -27,6 +27,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   // ✅ CONFIRMAÇÃO VISUAL: Detectar confirmação via MQTT
   useEffect(() => {
     if (commandStatus === 'pending' && lastMessage?.topic === 'aquasys/relay/status') {
+      // ✅ CORREÇÃO: Formato correto é relay0, relay1, ..., relay7
       const relayKey = `relay${relayIndex}`;
       if (lastMessage.payload[relayKey] !== undefined) {
         setCommandStatus('confirmed');
@@ -35,7 +36,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
         // Toast de sucesso ao confirmar
         toast({
           title: "✅ Confirmado",
-          description: `Relé ${relayIndex} ${isOn ? 'ligado' : 'desligado'} com sucesso`,
+          description: `Relé ${relayIndex + 1} ${isOn ? 'ligado' : 'desligado'} com sucesso`,
         });
         
         setTimeout(() => setCommandStatus('idle'), 2000);
@@ -62,7 +63,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       
       toast({
         title: "Comando enviado",
-        description: `Aguardando confirmação do relé ${relayIndex}...`,
+        description: `Aguardando confirmação do relé ${relayIndex + 1}...`,
       });
       
       // Timeout de 10 segundos para confirmação (aumentado de 5s)

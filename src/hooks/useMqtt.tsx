@@ -207,16 +207,16 @@ export const useMqtt = () => {
       // ✅ Extrair device_uuid do firmware v4.3-F1
       const deviceUuid = data.device_uuid || data.deviceUUID || 'unknown';
       
-      // Formato esperado pela edge function mqtt-collector
+      // ✅ CORREÇÃO: Firmware envia relay0-relay7, mas banco espera relay1-relay8
       const relayPayload = {
-        relay1: data.relay1 ?? false,
-        relay2: data.relay2 ?? false,
-        relay3: data.relay3 ?? false,
-        relay4: data.relay4 ?? false,
-        relay5: data.relay5 ?? false,
-        relay6: data.relay6 ?? false,
-        relay7: data.relay7 ?? false,
-        relay8: data.relay8 ?? false,
+        relay1: data.relay0 ?? false,
+        relay2: data.relay1 ?? false,
+        relay3: data.relay2 ?? false,
+        relay4: data.relay3 ?? false,
+        relay5: data.relay4 ?? false,
+        relay6: data.relay5 ?? false,
+        relay7: data.relay6 ?? false,
+        relay8: data.relay7 ?? false,
         device_uuid: deviceUuid
       };
 

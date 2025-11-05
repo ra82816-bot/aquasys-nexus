@@ -76,22 +76,40 @@ export const DeviceList = () => {
 
   const loadDeviceHealth = async () => {
     try {
-      // ✅ FASE 1: Buscar último health de cada dispositivo
+      // ✅ Buscar último health de cada dispositivo
       const { data, error } = await supabase
         .from("device_health")
-        .select("device_id, wifi_rssi, mqtt_connected, free_heap, sensor_ph_valid, sensor_ec_valid")
+        .select(`
+          device_id, 
+          wifi_rssi, 
+          mqtt_connected, 
+          free_heap, 
+          sensor_ph_valid, 
+          sensor_ec_valid,
+          timestamp
+        `)
         .order("timestamp", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao carregar health:", error);
+        return;
+      }
 
       // Agrupar por device_id (pegar apenas o mais recente)
       const healthMap: Record<string, DeviceHealth> = {};
       data?.forEach((health) => {
         if (!healthMap[health.device_id]) {
-          healthMap[health.device_id] = health;
+          healthMap[health.device_id] = {
+            wifi_rssi: health.wifi_rssi,
+            mqtt_connected: health.mqtt_connected,
+            free_heap: health.free_heap,
+            sensor_ph_valid: health.sensor_ph_valid,
+            sensor_ec_valid: health.sensor_ec_valid,
+          };
         }
       });
 
+      console.log("📊 Device Health carregado:", healthMap);
       setDeviceHealth(healthMap);
     } catch (error) {
       console.error("Erro ao carregar health:", error);
@@ -102,8 +120,8 @@ export const DeviceList = () => {
     if (!lastSeen) return false;
     const lastSeenTime = new Date(lastSeen).getTime();
     const now = Date.now();
-    // ✅ FASE 1: Online se visto nos últimos 5 minutos (device-auth + heartbeats)
-    return now - lastSeenTime < 300000; // 5 minutos
+    // ✅ Online se visto nos últimos 2 minutos (heartbeats são publicados a cada 30s)
+    return now - lastSeenTime < 120000; // 2 minutos
   };
 
   const getSignalStrength = (rssi: number | null) => {
@@ -235,45 +253,64 @@ export const DeviceList = () => {
                   </Badge>
                 </div>
                 
-                {/* Status de conexão */}
-                <div className="space-y-2 pt-2 border-t">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <Wifi className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">WiFi:</span>
+                {/* Status de conexão - Exibir apenas se houver dados de health */}
+                {health && (
+                  <>
+                    <div className="space-y-2 pt-2 border-t">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Wifi className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">WiFi:</span>
+                        </div>
+                        <span className={`font-medium ${signal.color}`}>
+                          {signal.label} ({health.wifi_rssi || "N/A"} dBm)
+                        </span>
+                      </div>
+                      <Progress value={signal.value} className="h-2" />
                     </div>
-                    <span className={`font-medium ${signal.color}`}>
-                      {signal.label} ({health?.wifi_rssi || "N/A"} dBm)
-                    </span>
-                  </div>
-                  <Progress value={signal.value} className="h-2" />
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Memória:</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Memória:</span>
+                        </div>
+                        <span className={`font-medium ${memory.color}`}>
+                          {memory.label} ({health.free_heap ? (health.free_heap / 1024).toFixed(0) : "N/A"} KB)
+                        </span>
+                      </div>
+                      <Progress value={memory.value} className="h-2" />
                     </div>
-                    <span className={`font-medium ${memory.color}`}>
-                      {memory.label} ({health?.free_heap ? (health.free_heap / 1024).toFixed(0) : "N/A"} KB)
-                    </span>
-                  </div>
-                  <Progress value={memory.value} className="h-2" />
-                </div>
 
-                {/* Status dos sensores (apenas para módulos de sensores) */}
-                {device.device_type === "sensor" && health && (
-                  <div className="space-y-1 pt-2 border-t">
-                    <span className="text-sm text-muted-foreground">Sensores:</span>
-                    <div className="flex gap-2 flex-wrap">
-                      <Badge variant={health.sensor_ph_valid ? "default" : "secondary"} className="text-xs">
-                        pH {health.sensor_ph_valid ? "✓" : "✗"}
-                      </Badge>
-                      <Badge variant={health.sensor_ec_valid ? "default" : "secondary"} className="text-xs">
-                        EC {health.sensor_ec_valid ? "✓" : "✗"}
+                    {/* Status MQTT */}
+                    <div className="flex items-center justify-between text-sm pt-2 border-t">
+                      <span className="text-muted-foreground">MQTT:</span>
+                      <Badge variant={health.mqtt_connected ? "default" : "secondary"}>
+                        {health.mqtt_connected ? "Conectado" : "Desconectado"}
                       </Badge>
                     </div>
+
+                    {/* Status dos sensores (apenas para módulos de sensores) */}
+                    {device.device_type === "sensor" && (
+                      <div className="space-y-1 pt-2 border-t">
+                        <span className="text-sm text-muted-foreground">Sensores:</span>
+                        <div className="flex gap-2 flex-wrap">
+                          <Badge variant={health.sensor_ph_valid ? "default" : "secondary"} className="text-xs">
+                            pH {health.sensor_ph_valid ? "✓" : "✗"}
+                          </Badge>
+                          <Badge variant={health.sensor_ec_valid ? "default" : "secondary"} className="text-xs">
+                            EC {health.sensor_ec_valid ? "✓" : "✗"}
+                          </Badge>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Exibir aviso se não houver dados de health */}
+                {!health && online && (
+                  <div className="text-sm text-muted-foreground text-center py-2 border-t">
+                    Aguardando dados do dispositivo...
                   </div>
                 )}
 
