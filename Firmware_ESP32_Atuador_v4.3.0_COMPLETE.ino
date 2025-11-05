@@ -876,10 +876,13 @@ bool reconnectMQTT() {
     lastMqttSuccess = millis();
     logMessage(LOG_INFO, "✅ MQTT conectado com sucesso!");
     
-    // Inscrever em tópicos
-    mqttClient.subscribe(TOPIC_RELAY_COMMAND);
-    mqttClient.subscribe(TOPIC_SENSORS);
-    logMessage(LOG_INFO, "✅ Inscrito em tópicos: relay/command e sensors");
+  // ✅ Inscrever em tópicos COM CONFIRMAÇÃO
+    bool sub1 = mqttClient.subscribe(TOPIC_RELAY_COMMAND, 1);
+    bool sub2 = mqttClient.subscribe(TOPIC_SENSORS, 1);
+    
+    logMessage(LOG_INFO, "📡 Inscrevendo em tópicos:");
+    logMessage(LOG_INFO, "  • " + String(TOPIC_RELAY_COMMAND) + (sub1 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(TOPIC_SENSORS) + (sub2 ? " ✅" : " ❌"));
     
     // Publicar estado inicial
     publishRelayStatus();
@@ -929,33 +932,61 @@ bool reconnectMQTT() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  resetWatchdog();
+  
   String message;
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
   
-  logMessage(LOG_DEBUG, "MQTT recebido [" + String(topic) + "]: " + message);
+  // ✅ LOGGING CRÍTICO: Toda mensagem recebida
+  logMessage(LOG_INFO, "📩 MQTT recebido!");
+  logMessage(LOG_INFO, "   Tópico: " + String(topic));
+  logMessage(LOG_INFO, "   Payload (" + String(length) + " bytes): " + message);
   
   StaticJsonDocument<512> doc;
   DeserializationError error = deserializeJson(doc, message);
   
   if (error) {
-    logMessage(LOG_ERROR, "Falha ao parsear JSON: " + String(error.c_str()));
+    logMessage(LOG_ERROR, "❌ Falha ao parsear JSON: " + String(error.c_str()));
     return;
   }
   
-  // Processar comandos de relé
+  // ✅ COMANDO DE RELÉ (aceita "relay" OU "relay_index")
   if (strcmp(topic, TOPIC_RELAY_COMMAND) == 0) {
-    if (doc.containsKey("relay_index") && doc.containsKey("state")) {
-      int relayIndex = doc["relay_index"];
-      bool state = doc["state"];
-      
-      if (relayIndex >= 0 && relayIndex < 8) {
-        setRelay(relayIndex, state);
-        relays[relayIndex].mode = "manual";
-        publishRelayStatus();
-        logMessage(LOG_INFO, "Comando manual: Relé " + String(relayIndex) + " → " + (state ? "ON" : "OFF"));
-      }
+    logMessage(LOG_INFO, "🎯 Tópico de comando de relé detectado!");
+    
+    // ✅ CORREÇÃO CRÍTICA: Aceitar AMBOS os formatos
+    int relayIndex = -1;
+    bool state = false;
+    
+    // Verificar formato 1: "relay" (usado pelo app web)
+    if (doc.containsKey("relay") && doc.containsKey("state")) {
+      relayIndex = doc["relay"];
+      state = doc["state"];
+      logMessage(LOG_INFO, "📝 Formato web detectado: relay=" + String(relayIndex) + ", state=" + String(state));
+    }
+    // Verificar formato 2: "relay_index" (formato antigo)
+    else if (doc.containsKey("relay_index") && doc.containsKey("state")) {
+      relayIndex = doc["relay_index"];
+      state = doc["state"];
+      logMessage(LOG_INFO, "📝 Formato legacy detectado: relay_index=" + String(relayIndex) + ", state=" + String(state));
+    }
+    else {
+      logMessage(LOG_ERROR, "❌ Comando sem campos corretos!");
+      logMessage(LOG_ERROR, "   Esperado: {\"relay\": 0-7, \"state\": true/false}");
+      logMessage(LOG_ERROR, "   Recebido: " + message);
+      return;
+    }
+    
+    // ✅ Validar índice e aplicar comando
+    if (relayIndex >= 0 && relayIndex < 8) {
+      setRelay(relayIndex, state);
+      relays[relayIndex].mode = "manual";
+      publishRelayStatus();
+      logMessage(LOG_INFO, "✅ Relé " + String(relayIndex) + " → " + (state ? "LIGADO" : "DESLIGADO"));
+    } else {
+      logMessage(LOG_ERROR, "❌ Índice de relé inválido: " + String(relayIndex) + " (deve ser 0-7)");
     }
   }
   
@@ -983,19 +1014,19 @@ void publishRelayStatus() {
   doc["device_uuid"] = deviceUUID;
   doc["timestamp"] = millis();
   
-  JsonArray relaysArray = doc.createNestedArray("relays");
+  // ✅ CORREÇÃO CRÍTICA: Formato plano esperado pelo app web
+  // App espera: {"relay1": true, "relay2": false, ...}
+  // NÃO: {"relays": [{"index": 0, "state": true}, ...]}
   for (int i = 0; i < 8; i++) {
-    JsonObject relay = relaysArray.createNestedObject();
-    relay["index"] = i;
-    relay["state"] = relays[i].state;
-    relay["mode"] = relays[i].mode;
+    String relayKey = "relay" + String(i + 1); // relay1, relay2, ..., relay8
+    doc[relayKey] = relays[i].state;
   }
   
   String message;
   serializeJson(doc, message);
   
-  mqttClient.publish(TOPIC_RELAY_STATUS, message.c_str());
-  logMessage(LOG_DEBUG, "Status publicado");
+  mqttClient.publish(TOPIC_RELAY_STATUS, message.c_str(), true); // Retained message
+  logMessage(LOG_INFO, "📤 Status publicado: " + message);
 }
 
 void publishHeartbeat() {
