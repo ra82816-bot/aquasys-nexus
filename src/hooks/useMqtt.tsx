@@ -208,20 +208,14 @@ export const useMqtt = () => {
       // ✅ Extrair device_uuid do firmware v4.3-F1
       const deviceUuid = data.device_uuid || data.deviceUUID || 'unknown';
       
-      // ✅ CORREÇÃO: Mapear corretamente relay0-relay7 (ESP32) para relay1_led-relay8_generic (banco)
+      // ✅ CORREÇÃO CRÍTICA: NÃO fazer mapeamento aqui - deixar mqtt-collector fazer
+      // Passar os dados exatamente como vêm do ESP32 (relay0-relay7)
       const relayPayload = {
-        relay1_led: data.relay0 ?? false,
-        relay2_pump: data.relay1 ?? false,
-        relay3_ph_up: data.relay2 ?? false,
-        relay4_fan: data.relay3 ?? false,
-        relay5_humidity: data.relay4 ?? false,
-        relay6_ec: data.relay5 ?? false,
-        relay7_co2: data.relay6 ?? false,
-        relay8_generic: data.relay7 ?? false,
+        ...data, // Manter todos os campos originais (relay0-relay7)
         device_uuid: deviceUuid
       };
 
-      console.log('💾 Dados mapeados para salvar:', relayPayload);
+      console.log('💾 Enviando para mqtt-collector:', relayPayload);
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
@@ -310,6 +304,14 @@ export const useMqtt = () => {
         return;
       }
 
+      // ✅ DIAGNÓSTICO COMPLETO
+      console.log('📤 COMANDO ENVIADO:');
+      console.log('  Device UUID:', deviceUuid);
+      console.log('  Relé Index (0-7):', relayIndex);
+      console.log('  Estado desejado:', command ? 'LIGADO' : 'DESLIGADO');
+      console.log('  Relé no ESP32:', `relay${relayIndex}`);
+      console.log('  Relé no banco:', `relay${relayIndex + 1}_*`);
+
       // ✅ relayIndex já vem como 0-7 do RelayCard
       const message = {
         relay: relayIndex, // Índice 0-7 direto do banco
@@ -318,7 +320,8 @@ export const useMqtt = () => {
 
       // ✅ Publicar no tópico específico do dispositivo
       const deviceTopic = `aquasys/${deviceUuid}/relay/command`;
-      console.log(`📤 Enviando comando para ${deviceUuid}, relé ${relayIndex + 1}:`, message);
+      console.log(`📡 Tópico MQTT: ${deviceTopic}`);
+      console.log('📦 Payload MQTT:', JSON.stringify(message));
       
       try {
         await publish(deviceTopic, message);
@@ -327,10 +330,16 @@ export const useMqtt = () => {
         await supabase.from('event_logs').insert({
           type: 'relay_command',
           message: `Relé ${relayIndex} → ${command ? 'LIGADO' : 'DESLIGADO'}`,
-          metadata: { device_uuid: deviceUuid, relay_index: relayIndex, command, timestamp: new Date().toISOString() }
+          metadata: { 
+            device_uuid: deviceUuid, 
+            relay_index: relayIndex, 
+            command, 
+            mqtt_topic: deviceTopic,
+            timestamp: new Date().toISOString() 
+          }
         });
         
-        console.log(`✅ Comando enviado para ${deviceTopic}`);
+        console.log(`✅ Comando publicado para ${deviceTopic}`);
       } catch (error) {
         console.error('❌ Erro ao publicar comando de relé:', error);
         throw error;

@@ -159,6 +159,9 @@ export const RelayControls = () => {
 
   const getRelayStatus = (index: number): boolean => {
     if (!relayStatus) return false;
+    
+    // ✅ CORREÇÃO CRÍTICA: Mapeamento correto relay_configs.relay_index → relay_status
+    // relay_configs.relay_index = 0 → relay_status.relay1_led
     const statusKeys: Record<number, keyof RelayStatus> = {
       0: 'relay1_led',
       1: 'relay2_pump',
@@ -169,7 +172,20 @@ export const RelayControls = () => {
       6: 'relay7_co2',
       7: 'relay8_generic'
     };
-    return relayStatus[statusKeys[index]] || false;
+    
+    const statusKey = statusKeys[index];
+    const status = relayStatus[statusKey] || false;
+    
+    // ✅ LOG DIAGNÓSTICO
+    if (index === 0) {
+      console.log('🔍 DIAGNÓSTICO RELÉ 0 (Iluminação):');
+      console.log('  relay_index:', index);
+      console.log('  statusKey no banco:', statusKey);
+      console.log('  Status lido:', status);
+      console.log('  Objeto completo:', relayStatus);
+    }
+    
+    return status;
   };
 
   return (

@@ -265,32 +265,35 @@ serve(async (req) => {
     // Processar status dos relés
     if (topic === 'aquasys/relay/status') {
       const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
-      console.log('Status dos relés recebido:', JSON.stringify(data));
+      console.log('📥 Status dos relés recebido:', JSON.stringify(data));
 
+      // ✅ CORREÇÃO: Aceitar AMBOS os formatos (relay0-7 direto do ESP32 OU relay1_led-relay8_generic do useMqtt)
       const insertData = {
-        relay1_led: data.relay1 || false,
-        relay2_pump: data.relay2 || false,
-        relay3_ph_up: data.relay3 || false,
-        relay4_fan: data.relay4 || false,
-        relay5_humidity: data.relay5 || false,
-        relay6_ec: data.relay6 || false,
-        relay7_co2: data.relay7 || false,
-        relay8_generic: data.relay8 || false,
+        relay1_led: data.relay1_led !== undefined ? data.relay1_led : (data.relay0 ?? false),
+        relay2_pump: data.relay2_pump !== undefined ? data.relay2_pump : (data.relay1 ?? false),
+        relay3_ph_up: data.relay3_ph_up !== undefined ? data.relay3_ph_up : (data.relay2 ?? false),
+        relay4_fan: data.relay4_fan !== undefined ? data.relay4_fan : (data.relay3 ?? false),
+        relay5_humidity: data.relay5_humidity !== undefined ? data.relay5_humidity : (data.relay4 ?? false),
+        relay6_ec: data.relay6_ec !== undefined ? data.relay6_ec : (data.relay5 ?? false),
+        relay7_co2: data.relay7_co2 !== undefined ? data.relay7_co2 : (data.relay6 ?? false),
+        relay8_generic: data.relay8_generic !== undefined ? data.relay8_generic : (data.relay7 ?? false),
       };
+
+      console.log('💾 Inserindo no banco:', JSON.stringify(insertData));
 
       const { error: insertError } = await supabaseAdmin
         .from('relay_status')
         .insert(insertData);
 
       if (insertError) {
-        console.error('Erro ao inserir status dos relés:', insertError);
+        console.error('❌ Erro ao inserir status dos relés:', insertError);
         return new Response(
           JSON.stringify({ error: insertError.message }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log('Status dos relés inserido com sucesso!');
+      console.log('✅ Status dos relés inserido com sucesso!');
     }
 
     return new Response(JSON.stringify({ success: true }), {
