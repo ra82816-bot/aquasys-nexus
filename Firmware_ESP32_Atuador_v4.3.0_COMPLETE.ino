@@ -824,15 +824,28 @@ void updateRTC() {
 
 // ==================== SEÇÃO 11: IMPLEMENTAÇÃO - MQTT ====================
 void setupMQTT() {
-  // Certificado raiz HiveMQ (opcional, pode usar espClient.setInsecure())
-  espClient.setInsecure(); // Simplificado, mas menos seguro
+  // ✅ Verificar heap disponível antes de configurar TLS
+  uint32_t freeHeap = ESP.getFreeHeap();
+  logMessage(LOG_INFO, "Heap livre: " + String(freeHeap) + " bytes (" + String(freeHeap/1024) + " KB)");
   
+  if (freeHeap < 50000) {
+    logMessage(LOG_ERROR, "⚠️ Heap insuficiente para TLS! Necessário: 50KB, Disponível: " + String(freeHeap/1024) + "KB");
+    return;
+  }
+  
+  // ✅ Configurar WiFiClientSecure com buffers otimizados
+  espClient.setInsecure();
+  espClient.setBufferSizes(512, 512); // RX, TX buffers para reduzir fragmentação
+  espClient.setTimeout(20000); // 20s para handshake TLS (antes era padrão ~5s)
+  
+  // ✅ Configurar MQTT client
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setKeepAlive(60);
-  mqttClient.setSocketTimeout(30);
+  mqttClient.setSocketTimeout(60); // 60s em vez de 30s
   
-  logMessage(LOG_INFO, "MQTT configurado: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
+  logMessage(LOG_INFO, "✅ MQTT configurado: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
+  logMessage(LOG_INFO, "TLS Buffers: 512 bytes RX/TX, Timeout: 20s");
 }
 
 bool reconnectMQTT() {
@@ -842,26 +855,76 @@ bool reconnectMQTT() {
   lastMqttAttempt = millis();
   resetWatchdog(); // ✅ Reset antes de conectar MQTT
   
-  String clientId = "aquasys-actuator-" + deviceUUID;
-  logMessage(LOG_INFO, "Conectando MQTT...");
+  // ✅ NOVO: Monitorar heap antes da tentativa de conexão
+  uint32_t heapBefore = ESP.getFreeHeap();
+  logMessage(LOG_INFO, "Heap antes de MQTT: " + String(heapBefore) + " bytes (" + String(heapBefore/1024) + " KB)");
   
-  if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+  String clientId = "aquasys-actuator-" + deviceUUID;
+  logMessage(LOG_INFO, "Conectando MQTT como: " + clientId);
+  logMessage(LOG_INFO, "Broker: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
+  logMessage(LOG_INFO, "User: " + String(MQTT_USER));
+  
+  // ✅ Tentar conexão
+  bool connected = mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS);
+  
+  // ✅ NOVO: Monitorar heap após tentativa
+  uint32_t heapAfter = ESP.getFreeHeap();
+  int32_t heapDelta = heapBefore - heapAfter;
+  logMessage(LOG_INFO, "Heap após MQTT: " + String(heapAfter) + " bytes (Delta: " + String(heapDelta) + " bytes)");
+  
+  if (connected) {
     mqttConnected = true;
     lastMqttSuccess = millis();
-    logMessage(LOG_INFO, "✅ MQTT conectado!");
+    logMessage(LOG_INFO, "✅ MQTT conectado com sucesso!");
     
-    // Subscrever tópicos
+    // Inscrever em tópicos
     mqttClient.subscribe(TOPIC_RELAY_COMMAND);
     mqttClient.subscribe(TOPIC_SENSORS);
-    logMessage(LOG_INFO, "Inscrito em: " + String(TOPIC_RELAY_COMMAND) + ", " + String(TOPIC_SENSORS));
+    logMessage(LOG_INFO, "✅ Inscrito em tópicos: relay/command e sensors");
     
-    // Publicar status inicial
+    // Publicar estado inicial
     publishRelayStatus();
-    
     return true;
   } else {
     mqttConnected = false;
-    logMessage(LOG_ERROR, "Falha MQTT, rc=" + String(mqttClient.state()));
+    int state = mqttClient.state();
+    logMessage(LOG_ERROR, "❌ Falha MQTT, rc=" + String(state));
+    
+    // ✅ NOVO: Decodificar código de erro MQTT
+    switch(state) {
+      case -4: 
+        logMessage(LOG_ERROR, "Erro: TIMEOUT na conexão (servidor não respondeu)"); 
+        break;
+      case -3: 
+        logMessage(LOG_ERROR, "Erro: CONEXÃO PERDIDA (network failure)"); 
+        break;
+      case -2: 
+        logMessage(LOG_ERROR, "Erro: FALHA NA CONEXÃO DE REDE (TLS handshake falhou)"); 
+        logMessage(LOG_ERROR, "Possíveis causas: heap baixo, timeout curto, firewall bloqueando 8883");
+        break;
+      case -1: 
+        logMessage(LOG_ERROR, "Erro: DESCONECTADO"); 
+        break;
+      case 1: 
+        logMessage(LOG_ERROR, "Erro: PROTOCOLO INCORRETO (versão MQTT incompatível)"); 
+        break;
+      case 2: 
+        logMessage(LOG_ERROR, "Erro: ID REJEITADO (clientId inválido)"); 
+        break;
+      case 3: 
+        logMessage(LOG_ERROR, "Erro: SERVIDOR INDISPONÍVEL"); 
+        break;
+      case 4: 
+        logMessage(LOG_ERROR, "Erro: CREDENCIAIS INVÁLIDAS (user/password incorretos)"); 
+        break;
+      case 5: 
+        logMessage(LOG_ERROR, "Erro: NÃO AUTORIZADO (sem permissão)"); 
+        break;
+      default:
+        logMessage(LOG_ERROR, "Erro desconhecido: " + String(state));
+        break;
+    }
+    
     return false;
   }
 }
