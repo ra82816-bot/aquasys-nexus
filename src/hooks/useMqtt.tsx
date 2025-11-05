@@ -208,16 +208,16 @@ export const useMqtt = () => {
       // ✅ Extrair device_uuid do firmware v4.3-F1
       const deviceUuid = data.device_uuid || data.deviceUUID || 'unknown';
       
-      // ✅ CORREÇÃO: Firmware envia relay0-relay7, mas banco espera relay1-relay8
+      // ✅ CORREÇÃO: Mapear corretamente relay0-relay7 (ESP32) para relay1_led-relay8_generic (banco)
       const relayPayload = {
-        relay1: data.relay0 ?? false,
-        relay2: data.relay1 ?? false,
-        relay3: data.relay2 ?? false,
-        relay4: data.relay3 ?? false,
-        relay5: data.relay4 ?? false,
-        relay6: data.relay5 ?? false,
-        relay7: data.relay6 ?? false,
-        relay8: data.relay7 ?? false,
+        relay1_led: data.relay0 ?? false,
+        relay2_pump: data.relay1 ?? false,
+        relay3_ph_up: data.relay2 ?? false,
+        relay4_fan: data.relay3 ?? false,
+        relay5_humidity: data.relay4 ?? false,
+        relay6_ec: data.relay5 ?? false,
+        relay7_co2: data.relay6 ?? false,
+        relay8_generic: data.relay7 ?? false,
         device_uuid: deviceUuid
       };
 
@@ -234,6 +234,12 @@ export const useMqtt = () => {
         console.error('❌ Erro ao salvar status dos relés:', error);
       } else {
         console.log('✅ Status dos relés salvo:', result);
+        
+        // ✅ Atualizar device ativo se este for diferente do atual
+        if (deviceUuid !== 'unknown') {
+          setDeviceUuid(deviceUuid);
+          console.log('🔄 Device ativo confirmado:', deviceUuid);
+        }
       }
     } catch (error) {
       console.error('❌ Erro ao chamar edge function:', error);
@@ -417,16 +423,34 @@ export const useMqtt = () => {
   useEffect(() => {
     const loadActiveDevice = async () => {
       try {
+        // ✅ Buscar device mais recente baseado em last_seen_at
         const { data, error } = await supabase
+          .from('devices')
+          .select('device_uuid, last_seen_at')
+          .order('last_seen_at', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (!error && data) {
+          setDeviceUuid(data.device_uuid);
+          console.log('✅ Device ativo identificado:', data.device_uuid, 
+                      'último visto:', data.last_seen_at || 'nunca');
+          return;
+        }
+
+        // Fallback: buscar último device cadastrado
+        const { data: fallbackData, error: fallbackError } = await supabase
           .from('devices')
           .select('device_uuid')
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
         
-        if (!error && data) {
-          setDeviceUuid(data.device_uuid);
-          console.log('✅ Device ativo carregado:', data.device_uuid);
+        if (!fallbackError && fallbackData) {
+          setDeviceUuid(fallbackData.device_uuid);
+          console.log('✅ Device ativo carregado via cadastro:', fallbackData.device_uuid);
+        } else {
+          console.warn('⚠️ Nenhum device encontrado');
         }
       } catch (error) {
         console.error('❌ Erro ao carregar device:', error);
@@ -434,6 +458,10 @@ export const useMqtt = () => {
     };
     
     loadActiveDevice();
+    
+    // ✅ Atualizar device ativo a cada 30 segundos
+    const interval = setInterval(loadActiveDevice, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

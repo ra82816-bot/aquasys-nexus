@@ -49,6 +49,8 @@ export const RelayConfigDialog = ({
   }, [config]);
 
   const prepareMqttConfig = (mode: string, formData: Record<string, any>) => {
+    // ✅ CORREÇÃO: Modo manual não precisa de mapeamento numérico
+    // O ESP32 processará comandos manuais via topic de comando, não de config
     const modeMap: Record<string, number> = {
       'unused': 0,
       'led': 1,
@@ -59,11 +61,20 @@ export const RelayConfigDialog = ({
       'ec': 6,
       'co2': 7,
       'ph_down': 8,
-      'manual': 0
+      'manual': 0  // Modo manual = mesmo que unused (sem automação)
     };
+
+    // ✅ Para modo manual, não enviar config complexa
+    if (mode === 'manual') {
+      return {
+        mode: 0,  // Desativa automação
+        relay: formData.relay_index || 0
+      };
+    }
 
     return {
       mode: modeMap[mode] || 0,
+      relay: formData.relay_index || 0,
       led_on_hour: formData.led_on_hour || 6,
       led_off_hour: formData.led_off_hour || 0,
       cycle_on_min: formData.cycle_on_min || 15,
