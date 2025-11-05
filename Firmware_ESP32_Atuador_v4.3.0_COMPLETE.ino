@@ -833,9 +833,8 @@ void setupMQTT() {
     return;
   }
   
-  // ✅ Configurar WiFiClientSecure com buffers otimizados
+  // ✅ Configurar WiFiClientSecure otimizado
   espClient.setInsecure();
-  espClient.setBufferSizes(512, 512); // RX, TX buffers para reduzir fragmentação
   espClient.setTimeout(20000); // 20s para handshake TLS (antes era padrão ~5s)
   
   // ✅ Configurar MQTT client
@@ -845,7 +844,7 @@ void setupMQTT() {
   mqttClient.setSocketTimeout(60); // 60s em vez de 30s
   
   logMessage(LOG_INFO, "✅ MQTT configurado: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
-  logMessage(LOG_INFO, "TLS Buffers: 512 bytes RX/TX, Timeout: 20s");
+  logMessage(LOG_INFO, "TLS Timeout configurado: 20s");
 }
 
 bool reconnectMQTT() {
