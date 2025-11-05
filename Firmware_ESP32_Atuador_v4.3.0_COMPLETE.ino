@@ -67,8 +67,10 @@ const int RELAY_PINS[8] = {2, 4, 5, 12, 13, 14, 15, 16};
 // MQTT Topics
 #define TOPIC_RELAY_STATUS "aquasys/relay/status"
 #define TOPIC_RELAY_COMMAND "aquasys/relay/command"
+#define TOPIC_RELAY_CONFIG "aquasys/relay/config"
 #define TOPIC_SENSORS "aquasys/sensors/all"
-#define TOPIC_HEARTBEAT "aquasys/heartbeat/actuator"
+#define TOPIC_HEARTBEAT "aquasys/heartbeat"
+#define TOPIC_CALIBRATION "aquasys/calibration/command"
 
 // BLE UUIDs (devem coincidir com o sensor)
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -122,6 +124,7 @@ struct RelayConfig {
   bool state;
   float min_threshold;
   float max_threshold;
+  String name;  // Nome do relé
 };
 
 struct EmergencyConfig {
@@ -876,13 +879,17 @@ bool reconnectMQTT() {
     lastMqttSuccess = millis();
     logMessage(LOG_INFO, "✅ MQTT conectado com sucesso!");
     
-  // ✅ Inscrever em tópicos COM CONFIRMAÇÃO
+  // ✅ Inscrever em TODOS os tópicos necessários COM CONFIRMAÇÃO
     bool sub1 = mqttClient.subscribe(TOPIC_RELAY_COMMAND, 1);
     bool sub2 = mqttClient.subscribe(TOPIC_SENSORS, 1);
+    bool sub3 = mqttClient.subscribe(TOPIC_RELAY_CONFIG, 1);
+    bool sub4 = mqttClient.subscribe(TOPIC_CALIBRATION, 1);
     
     logMessage(LOG_INFO, "📡 Inscrevendo em tópicos:");
     logMessage(LOG_INFO, "  • " + String(TOPIC_RELAY_COMMAND) + (sub1 ? " ✅" : " ❌"));
     logMessage(LOG_INFO, "  • " + String(TOPIC_SENSORS) + (sub2 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(TOPIC_RELAY_CONFIG) + (sub3 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(TOPIC_CALIBRATION) + (sub4 ? " ✅" : " ❌"));
     
     // Publicar estado inicial
     publishRelayStatus();
@@ -990,8 +997,59 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
   }
   
+  // ✅ NOVO: CONFIGURAÇÃO DE RELÉS
+  else if (strcmp(topic, TOPIC_RELAY_CONFIG) == 0) {
+    logMessage(LOG_INFO, "⚙️ Configuração de relé recebida!");
+    
+    if (doc.containsKey("relay") || doc.containsKey("relay_index")) {
+      int relayIndex = doc.containsKey("relay") ? doc["relay"].as<int>() : doc["relay_index"].as<int>();
+      
+      if (relayIndex >= 0 && relayIndex < 8) {
+        // Atualizar configurações
+        if (doc.containsKey("mode")) {
+          relays[relayIndex].mode = doc["mode"].as<String>();
+          logMessage(LOG_INFO, "  Modo: " + relays[relayIndex].mode);
+        }
+        if (doc.containsKey("min_threshold")) {
+          relays[relayIndex].min_threshold = doc["min_threshold"];
+          logMessage(LOG_INFO, "  Min threshold: " + String(relays[relayIndex].min_threshold));
+        }
+        if (doc.containsKey("max_threshold")) {
+          relays[relayIndex].max_threshold = doc["max_threshold"];
+          logMessage(LOG_INFO, "  Max threshold: " + String(relays[relayIndex].max_threshold));
+        }
+        if (doc.containsKey("name")) {
+          relays[relayIndex].name = doc["name"].as<String>();
+          logMessage(LOG_INFO, "  Nome: " + relays[relayIndex].name);
+        }
+        
+        // Salvar configuração na NVS
+        saveRelayConfig();
+        
+        logMessage(LOG_INFO, "✅ Configuração do relé " + String(relayIndex) + " atualizada!");
+      } else {
+        logMessage(LOG_ERROR, "❌ Índice de relé inválido na configuração: " + String(relayIndex));
+      }
+    }
+  }
+  
+  // ✅ NOVO: COMANDOS DE CALIBRAÇÃO
+  else if (strcmp(topic, TOPIC_CALIBRATION) == 0) {
+    logMessage(LOG_INFO, "🔬 Comando de calibração recebido!");
+    
+    String sensorType = doc["sensor_type"] | "";
+    String calibType = doc["calibration_type"] | "";
+    
+    logMessage(LOG_INFO, "  Sensor: " + sensorType);
+    logMessage(LOG_INFO, "  Tipo: " + calibType);
+    
+    // Implementação futura: aplicar calibração aos sensores via BLE
+    // Por enquanto, apenas logar
+    logMessage(LOG_WARN, "⚠️ Calibração via MQTT ainda não implementada (requer integração BLE com sensor)");
+  }
+  
   // Processar dados de sensores
-  if (strcmp(topic, TOPIC_SENSORS) == 0) {
+  else if (strcmp(topic, TOPIC_SENSORS) == 0) {
     currentSensorData.ph = doc["ph"] | 0.0;
     currentSensorData.ec = doc["ec"] | 0.0;
     currentSensorData.air_temp = doc["air_temp"] | 0.0;
@@ -1032,37 +1090,52 @@ void publishRelayStatus() {
 void publishHeartbeat() {
   if (!mqttConnected) return;
   
+  // ✅ FORMATO CORRIGIDO: Compatível com backend (useMqtt.tsx + mqtt-collector)
   StaticJsonDocument<1024> doc;
   doc["device_uuid"] = deviceUUID;
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["device_type"] = DEVICE_TYPE;
-  doc["uptime"] = millis() / 1000;
-  doc["free_heap"] = ESP.getFreeHeap();
-  doc["wifi_connected"] = wifiConnected;
-  doc["wifi_rssi"] = wifiConnected ? WiFi.RSSI() : 0;
-  doc["mqtt_connected"] = mqttConnected;
-  doc["ble_active"] = bleClientActive;
-  doc["ble_connected"] = bleConnected;
-  doc["emergency_mode"] = emergencyMode;
+  doc["uptime_ms"] = millis(); // ✅ CRITICAL: Backend espera uptime_ms (não uptime em segundos)
   
+  // ✅ Status aninhado (esperado pelo backend)
+  JsonObject status = doc.createNestedObject("status");
+  status["wifi_connected"] = wifiConnected;
+  status["rssi"] = wifiConnected ? WiFi.RSSI() : 0;
+  status["ip_address"] = wifiConnected ? WiFi.localIP().toString() : "";
+  status["mqtt_connected"] = mqttConnected;
+  status["ble_active"] = bleClientActive;
+  status["ble_connected"] = bleConnected;
+  status["emergency_mode"] = emergencyMode;
+  
+  // ✅ Memória aninhada (esperado pelo backend)
+  JsonObject memory = doc.createNestedObject("memory");
+  memory["free_heap"] = ESP.getFreeHeap();
+  memory["min_free_heap"] = ESP.getMinFreeHeap();
+  
+  // Dados de sensores
   JsonObject sensor = doc.createNestedObject("last_sensor_data");
   sensor["ph"] = currentSensorData.ph;
   sensor["ec"] = currentSensorData.ec;
+  sensor["air_temp"] = currentSensorData.air_temp;
+  sensor["humidity"] = currentSensorData.humidity;
+  sensor["water_temp"] = currentSensorData.water_temp;
   sensor["valid"] = currentSensorData.valid;
   
+  // Relés
   JsonArray relaysArray = doc.createNestedArray("relays");
   for (int i = 0; i < 8; i++) {
     JsonObject relay = relaysArray.createNestedObject();
     relay["index"] = i;
     relay["state"] = relays[i].state;
     relay["mode"] = relays[i].mode;
+    relay["name"] = relays[i].name;
   }
   
   String message;
   serializeJson(doc, message);
   
   mqttClient.publish(TOPIC_HEARTBEAT, message.c_str());
-  logMessage(LOG_DEBUG, "Heartbeat publicado");
+  logMessage(LOG_DEBUG, "💓 Heartbeat publicado");
 }
 
 // ==================== SEÇÃO 12: IMPLEMENTAÇÃO - BLE CLIENT ====================
@@ -1210,11 +1283,13 @@ void initRelays() {
     relays[i].state = false;
     relays[i].min_threshold = 0.0;
     relays[i].max_threshold = 0.0;
+    relays[i].name = "Relé " + String(i + 1);
   }
   
   // Configuração padrão pH (exemplo)
   relays[0].min_threshold = 5.5;
   relays[0].max_threshold = 6.5;
+  relays[0].name = "pH Control";
   
   logMessage(LOG_INFO, "Relés inicializados");
 }
@@ -1226,10 +1301,12 @@ void loadRelayConfig() {
     String keyMode = "mode" + String(i);
     String keyMin = "min" + String(i);
     String keyMax = "max" + String(i);
+    String keyName = "name" + String(i);
     
     relays[i].mode = prefs.getString(keyMode.c_str(), "auto");
     relays[i].min_threshold = prefs.getFloat(keyMin.c_str(), 0.0);
     relays[i].max_threshold = prefs.getFloat(keyMax.c_str(), 0.0);
+    relays[i].name = prefs.getString(keyName.c_str(), "Relé " + String(i + 1));
   }
   
   prefs.end();
@@ -1243,10 +1320,12 @@ void saveRelayConfig() {
     String keyMode = "mode" + String(i);
     String keyMin = "min" + String(i);
     String keyMax = "max" + String(i);
+    String keyName = "name" + String(i);
     
     prefs.putString(keyMode.c_str(), relays[i].mode);
     prefs.putFloat(keyMin.c_str(), relays[i].min_threshold);
     prefs.putFloat(keyMax.c_str(), relays[i].max_threshold);
+    prefs.putString(keyName.c_str(), relays[i].name);
   }
   
   prefs.end();
