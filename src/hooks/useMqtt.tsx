@@ -15,6 +15,7 @@ export const useMqtt = () => {
   const [lastMessage, setLastMessage] = useState<MqttMessage | null>(null);
   const [lastSensorUpdate, setLastSensorUpdate] = useState<number>(0);
   const [sensorTimeout, setSensorTimeout] = useState(false);
+  const [deviceUuid, setDeviceUuid] = useState<string | null>(null);
   const clientRef = useRef<MqttClient | null>(null);
   const { toast } = useToast();
 
@@ -293,69 +294,94 @@ export const useMqtt = () => {
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
+      if (!deviceUuid) {
+        console.error('❌ Device UUID não disponível');
+        toast({
+          title: "Erro",
+          description: "Nenhum dispositivo conectado",
+          variant: "destructive"
+        });
+        return;
+      }
+
       // ✅ relayIndex já vem como 0-7 do RelayCard
       const message = {
         relay: relayIndex, // Índice 0-7 direto do banco
         state: command
       };
 
-      console.log(`📤 Enviando comando para relé ${relayIndex + 1} (índice ${relayIndex}):`, message);
+      // ✅ Publicar no tópico específico do dispositivo
+      const deviceTopic = `aquasys/${deviceUuid}/relay/command`;
+      console.log(`📤 Enviando comando para ${deviceUuid}, relé ${relayIndex + 1}:`, message);
+      
       try {
-        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        await publish(deviceTopic, message);
         
         // Registrar no event_logs para auditoria
         await supabase.from('event_logs').insert({
           type: 'relay_command',
           message: `Relé ${relayIndex} → ${command ? 'LIGADO' : 'DESLIGADO'}`,
-          metadata: { relay_index: relayIndex, command, timestamp: new Date().toISOString() }
+          metadata: { device_uuid: deviceUuid, relay_index: relayIndex, command, timestamp: new Date().toISOString() }
         });
         
-        console.log(`✅ Comando de relé registrado no log de eventos`);
+        console.log(`✅ Comando enviado para ${deviceTopic}`);
       } catch (error) {
         console.error('❌ Erro ao publicar comando de relé:', error);
         throw error;
       }
     },
-    [publish]
+    [publish, deviceUuid, toast]
   );
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
+      if (!deviceUuid) {
+        console.error('❌ Device UUID não disponível');
+        return;
+      }
+
       // ✅ relayIndex já vem como 0-7 do componente
       const message = {
         relay: relayIndex, // Índice 0-7 direto
         config: config
       };
 
-      console.log(`📤 Enviando configuração para relé ${relayIndex + 1} (índice ${relayIndex}):`, message);
+      const deviceTopic = `aquasys/${deviceUuid}/relay/config`;
+      console.log(`📤 Enviando configuração para ${deviceUuid}, relé ${relayIndex + 1}:`, message);
       try {
-        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        await publish(deviceTopic, message);
         console.log('✅ Configuração enviada com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar configuração:', error);
         throw error;
       }
     },
-    [publish]
+    [publish, deviceUuid]
   );
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
+      if (!deviceUuid) {
+        console.error('❌ Device UUID não disponível');
+        return;
+      }
+
       // ✅ relayIndex já vem como 0-7 do componente
       const message = {
         auto: relayIndex // Índice 0-7 direto
       };
 
-      console.log(`📤 Definindo modo automático para relé ${relayIndex + 1} (índice ${relayIndex})`);
+      const deviceTopic = `aquasys/${deviceUuid}/relay/command`;
+      console.log(`📤 Definindo modo automático para ${deviceUuid}, relé ${relayIndex + 1}`);
       try {
-        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        await publish(deviceTopic, message);
         console.log('✅ Modo automático definido com sucesso');
       } catch (error) {
         console.error('❌ Erro ao definir modo auto:', error);
         throw error;
       }
     },
-    [publish]
+    [publish, deviceUuid]
   );
 
   // ✅ VALIDAÇÃO DE TIMEOUT DE DADOS (Prioridade ALTA)
@@ -386,6 +412,29 @@ export const useMqtt = () => {
     
     return () => clearInterval(interval);
   }, [lastSensorUpdate, sensorTimeout, toast]);
+
+  // ✅ Carregar device UUID ativo ao iniciar
+  useEffect(() => {
+    const loadActiveDevice = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('devices')
+          .select('device_uuid')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        if (!error && data) {
+          setDeviceUuid(data.device_uuid);
+          console.log('✅ Device ativo carregado:', data.device_uuid);
+        }
+      } catch (error) {
+        console.error('❌ Erro ao carregar device:', error);
+      }
+    };
+    
+    loadActiveDevice();
+  }, []);
 
   useEffect(() => {
     connect();
