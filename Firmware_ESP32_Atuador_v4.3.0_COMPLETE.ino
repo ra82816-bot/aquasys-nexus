@@ -40,7 +40,7 @@
 
 // ==================== SEÇÃO 2: CONFIGURAÇÕES ====================
 // Versão do Firmware
-#define FIRMWARE_VERSION "4.3.0-COMPLETE"
+#define FIRMWARE_VERSION "4.3.1-AUTH"
 #define DEVICE_TYPE "ACTUATOR"
 
 // Pinos dos Relés (8 relés)
@@ -57,20 +57,23 @@ const int RELAY_PINS[8] = {23, 5, 4, 13, 22, 21, 14, 12};
 #define EMERGENCY_TIMEOUT 300000  // 5min offline = modo emergência
 #define BLE_SCAN_TIMEOUT 5        // 5s para scan BLE
 #define WATCHDOG_TIMEOUT 60       // 60s
+#define AUTH_TIMEOUT 10000        // 10s para autenticação
 
-// MQTT Configuration
-#define MQTT_BROKER "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
+// ✅ API Supabase (autenticação dinâmica)
+#define SUPABASE_URL "https://oaabtbvwxsjomeeizciq.supabase.co"
+#define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw"
+
+// MQTT Configuration (fallback - será substituído por credenciais dinâmicas)
+#define MQTT_BROKER_FALLBACK "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
 #define MQTT_PORT 8883
-#define MQTT_USER "esp32-user"
-#define MQTT_PASS "HydroSmart123"
 
-// MQTT Topics
-#define TOPIC_RELAY_STATUS "aquasys/relay/status"
-#define TOPIC_RELAY_COMMAND "aquasys/relay/command"
-#define TOPIC_RELAY_CONFIG "aquasys/relay/config"
-#define TOPIC_SENSORS "aquasys/sensors/all"
-#define TOPIC_HEARTBEAT "aquasys/heartbeat"
-#define TOPIC_CALIBRATION "aquasys/calibration/command"
+// MQTT Topics (fallback - serão substituídos por tópicos dinâmicos)
+#define TOPIC_RELAY_STATUS_FALLBACK "aquasys/relay/status"
+#define TOPIC_RELAY_COMMAND_FALLBACK "aquasys/relay/command"
+#define TOPIC_RELAY_CONFIG_FALLBACK "aquasys/relay/config"
+#define TOPIC_SENSORS_FALLBACK "aquasys/sensors/all"
+#define TOPIC_HEARTBEAT_FALLBACK "aquasys/heartbeat"
+#define TOPIC_CALIBRATION_FALLBACK "aquasys/calibration/command"
 
 // BLE UUIDs (devem coincidir com o sensor)
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -141,6 +144,21 @@ struct CycleState {
   bool state;
 };
 
+// ✅ NOVO: Estrutura para credenciais MQTT dinâmicas
+struct MqttCredentials {
+  char broker[128];
+  char username[64];
+  char password[128];
+  char client_id[64];
+  char topic_sensors[128];
+  char topic_relay_status[128];
+  char topic_relay_command[128];
+  char topic_heartbeat[128];
+  char topic_relay_config[128];
+  char topic_calibration[128];
+  bool valid;
+};
+
 // ==================== SEÇÃO 4: VARIÁVEIS GLOBAIS ====================
 // Device UUID
 String deviceUUID = "";
@@ -163,6 +181,8 @@ PubSubClient mqttClient(espClient);
 bool mqttConnected = false;
 unsigned long lastMqttSuccess = 0;
 unsigned long lastMqttAttempt = 0;
+MqttCredentials mqttCreds = {"", "", "", "", "", "", "", "", "", "", false}; // ✅ Credenciais dinâmicas
+bool isAuthenticated = false;
 
 // Relays
 RelayConfig relays[8];
@@ -222,6 +242,11 @@ void handleNotFound();
 void syncNTP();
 time_t estimatedTime();
 void updateRTC();
+
+// ✅ NOVO: Autenticação
+bool authenticateDevice();
+void loadMqttCredentials();
+void saveMqttCredentials();
 
 // MQTT
 void setupMQTT();
@@ -825,6 +850,154 @@ void updateRTC() {
   }
 }
 
+// ==================== SEÇÃO 10.5: AUTENTICAÇÃO DINÂMICA ====================
+bool authenticateDevice() {
+  if (!wifiConnected) {
+    logMessage(LOG_ERROR, "❌ Autenticação requer WiFi conectado");
+    return false;
+  }
+  
+  logMessage(LOG_INFO, "🔐 Iniciando autenticação dinâmica...");
+  resetWatchdog();
+  
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure(); // Para desenvolvimento - em produção use certificado
+  
+  String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
+  http.begin(client, url);
+  
+  // Headers
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("apikey", SUPABASE_ANON_KEY);
+  http.addHeader("Authorization", "Bearer " + String(SUPABASE_ANON_KEY));
+  
+  // Body
+  StaticJsonDocument<256> reqDoc;
+  reqDoc["device_uuid"] = deviceUUID;
+  reqDoc["firmware_version"] = FIRMWARE_VERSION;
+  
+  String requestBody;
+  serializeJson(reqDoc, requestBody);
+  
+  logMessage(LOG_INFO, "📤 Enviando: " + requestBody);
+  
+  // Timeout
+  http.setTimeout(AUTH_TIMEOUT);
+  
+  // POST request
+  int httpCode = http.POST(requestBody);
+  
+  logMessage(LOG_INFO, "📡 HTTP Code: " + String(httpCode));
+  
+  if (httpCode == 200) {
+    String response = http.getString();
+    logMessage(LOG_INFO, "📥 Resposta recebida (" + String(response.length()) + " bytes)");
+    
+    StaticJsonDocument<1024> doc;
+    DeserializationError error = deserializeJson(doc, response);
+    
+    if (error) {
+      logMessage(LOG_ERROR, "❌ Erro ao parsear resposta: " + String(error.c_str()));
+      http.end();
+      return false;
+    }
+    
+    if (doc["success"]) {
+      // Extrair credenciais
+      JsonObject mqtt_config = doc["mqtt_config"];
+      
+      strncpy(mqttCreds.broker, mqtt_config["broker"] | MQTT_BROKER_FALLBACK, sizeof(mqttCreds.broker) - 1);
+      strncpy(mqttCreds.username, mqtt_config["username"] | deviceUUID.c_str(), sizeof(mqttCreds.username) - 1);
+      strncpy(mqttCreds.password, mqtt_config["password"] | "", sizeof(mqttCreds.password) - 1);
+      strncpy(mqttCreds.client_id, mqtt_config["client_id"] | deviceUUID.c_str(), sizeof(mqttCreds.client_id) - 1);
+      
+      // Tópicos dinâmicos
+      JsonObject topics = mqtt_config["topics"];
+      strncpy(mqttCreds.topic_sensors, topics["sensors"] | TOPIC_SENSORS_FALLBACK, sizeof(mqttCreds.topic_sensors) - 1);
+      strncpy(mqttCreds.topic_relay_status, topics["relay_status"] | TOPIC_RELAY_STATUS_FALLBACK, sizeof(mqttCreds.topic_relay_status) - 1);
+      strncpy(mqttCreds.topic_relay_command, topics["relay_command"] | TOPIC_RELAY_COMMAND_FALLBACK, sizeof(mqttCreds.topic_relay_command) - 1);
+      strncpy(mqttCreds.topic_heartbeat, topics["heartbeat"] | TOPIC_HEARTBEAT_FALLBACK, sizeof(mqttCreds.topic_heartbeat) - 1);
+      
+      // Tópicos padrão se não fornecidos
+      snprintf(mqttCreds.topic_relay_config, sizeof(mqttCreds.topic_relay_config), "aquasys/%s/relay/config", deviceUUID.c_str());
+      snprintf(mqttCreds.topic_calibration, sizeof(mqttCreds.topic_calibration), "aquasys/%s/calibration/command", deviceUUID.c_str());
+      
+      mqttCreds.valid = true;
+      isAuthenticated = true;
+      
+      // Salvar em NVS para uso offline
+      saveMqttCredentials();
+      
+      logMessage(LOG_INFO, "✅ Autenticação bem-sucedida!");
+      logMessage(LOG_INFO, "   Broker: " + String(mqttCreds.broker));
+      logMessage(LOG_INFO, "   Username: " + String(mqttCreds.username));
+      logMessage(LOG_INFO, "   Topics: " + String(mqttCreds.topic_relay_command));
+      
+      http.end();
+      return true;
+    } else {
+      logMessage(LOG_ERROR, "❌ Autenticação falhou: " + String(doc["error"] | "unknown"));
+      http.end();
+      return false;
+    }
+  } else if (httpCode == 404) {
+    logMessage(LOG_ERROR, "❌ Dispositivo não registrado. Registre via web app primeiro.");
+  } else if (httpCode == 429) {
+    logMessage(LOG_ERROR, "❌ Rate limit excedido. Aguarde e tente novamente.");
+  } else {
+    logMessage(LOG_ERROR, "❌ Erro HTTP: " + String(httpCode));
+  }
+  
+  http.end();
+  return false;
+}
+
+void loadMqttCredentials() {
+  prefs.begin("mqtt_creds", true);
+  
+  String broker = prefs.getString("broker", "");
+  String username = prefs.getString("username", "");
+  String password = prefs.getString("password", "");
+  
+  if (broker.length() > 0 && username.length() > 0) {
+    strncpy(mqttCreds.broker, broker.c_str(), sizeof(mqttCreds.broker) - 1);
+    strncpy(mqttCreds.username, username.c_str(), sizeof(mqttCreds.username) - 1);
+    strncpy(mqttCreds.password, password.c_str(), sizeof(mqttCreds.password) - 1);
+    
+    String topic_relay_cmd = prefs.getString("topic_cmd", "");
+    String topic_relay_status = prefs.getString("topic_status", "");
+    
+    if (topic_relay_cmd.length() > 0) {
+      strncpy(mqttCreds.topic_relay_command, topic_relay_cmd.c_str(), sizeof(mqttCreds.topic_relay_command) - 1);
+      strncpy(mqttCreds.topic_relay_status, topic_relay_status.c_str(), sizeof(mqttCreds.topic_relay_status) - 1);
+      
+      mqttCreds.valid = true;
+      logMessage(LOG_INFO, "✅ Credenciais MQTT carregadas da NVS");
+    }
+  } else {
+    logMessage(LOG_WARN, "⚠️ Nenhuma credencial salva, usando fallback");
+    strncpy(mqttCreds.broker, MQTT_BROKER_FALLBACK, sizeof(mqttCreds.broker) - 1);
+    mqttCreds.valid = false;
+  }
+  
+  prefs.end();
+}
+
+void saveMqttCredentials() {
+  prefs.begin("mqtt_creds", false);
+  
+  prefs.putString("broker", mqttCreds.broker);
+  prefs.putString("username", mqttCreds.username);
+  prefs.putString("password", mqttCreds.password);
+  prefs.putString("topic_cmd", mqttCreds.topic_relay_command);
+  prefs.putString("topic_status", mqttCreds.topic_relay_status);
+  
+  prefs.end();
+  
+  logMessage(LOG_INFO, "💾 Credenciais MQTT salvas na NVS");
+}
+
 // ==================== SEÇÃO 11: IMPLEMENTAÇÃO - MQTT ====================
 void setupMQTT() {
   // ✅ Verificar heap disponível antes de configurar TLS
@@ -840,14 +1013,19 @@ void setupMQTT() {
   espClient.setInsecure();
   espClient.setTimeout(20000); // 20s para handshake TLS (antes era padrão ~5s)
   
+  // ✅ Usar broker dinâmico ou fallback
+  const char* brokerToUse = mqttCreds.valid ? mqttCreds.broker : MQTT_BROKER_FALLBACK;
+  
   // ✅ Configurar MQTT client
-  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setServer(brokerToUse, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setKeepAlive(60);
   mqttClient.setSocketTimeout(60); // 60s em vez de 30s
   
-  logMessage(LOG_INFO, "✅ MQTT configurado: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
+  logMessage(LOG_INFO, "✅ MQTT configurado: " + String(brokerToUse) + ":" + String(MQTT_PORT));
+  logMessage(LOG_INFO, "   Modo: " + String(mqttCreds.valid ? "Autenticado" : "Fallback"));
   logMessage(LOG_INFO, "TLS Timeout configurado: 20s");
+}
 }
 
 bool reconnectMQTT() {
@@ -861,13 +1039,17 @@ bool reconnectMQTT() {
   uint32_t heapBefore = ESP.getFreeHeap();
   logMessage(LOG_INFO, "Heap antes de MQTT: " + String(heapBefore) + " bytes (" + String(heapBefore/1024) + " KB)");
   
-  String clientId = "aquasys-actuator-" + deviceUUID;
-  logMessage(LOG_INFO, "Conectando MQTT como: " + clientId);
-  logMessage(LOG_INFO, "Broker: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
-  logMessage(LOG_INFO, "User: " + String(MQTT_USER));
+  // ✅ Usar credenciais dinâmicas ou fallback
+  const char* clientIdToUse = mqttCreds.valid ? mqttCreds.client_id : ("aquasys-actuator-" + deviceUUID).c_str();
+  const char* usernameToUse = mqttCreds.valid ? mqttCreds.username : deviceUUID.c_str();
+  const char* passwordToUse = mqttCreds.valid ? mqttCreds.password : "";
+  
+  logMessage(LOG_INFO, "Conectando MQTT como: " + String(clientIdToUse));
+  logMessage(LOG_INFO, "Username: " + String(usernameToUse));
+  logMessage(LOG_INFO, "Modo: " + String(mqttCreds.valid ? "Autenticado" : "Fallback"));
   
   // ✅ Tentar conexão
-  bool connected = mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS);
+  bool connected = mqttClient.connect(clientIdToUse, usernameToUse, passwordToUse);
   
   // ✅ NOVO: Monitorar heap após tentativa
   uint32_t heapAfter = ESP.getFreeHeap();
@@ -880,16 +1062,22 @@ bool reconnectMQTT() {
     logMessage(LOG_INFO, "✅ MQTT conectado com sucesso!");
     
   // ✅ Inscrever em TODOS os tópicos necessários COM CONFIRMAÇÃO
-    bool sub1 = mqttClient.subscribe(TOPIC_RELAY_COMMAND, 1);
-    bool sub2 = mqttClient.subscribe(TOPIC_SENSORS, 1);
-    bool sub3 = mqttClient.subscribe(TOPIC_RELAY_CONFIG, 1);
-    bool sub4 = mqttClient.subscribe(TOPIC_CALIBRATION, 1);
+    // Usar tópicos dinâmicos se disponíveis, senão usar fallback
+    const char* topicRelayCmd = mqttCreds.valid ? mqttCreds.topic_relay_command : TOPIC_RELAY_COMMAND_FALLBACK;
+    const char* topicSensors = mqttCreds.valid ? mqttCreds.topic_sensors : TOPIC_SENSORS_FALLBACK;
+    const char* topicRelayConfig = mqttCreds.valid ? mqttCreds.topic_relay_config : TOPIC_RELAY_CONFIG_FALLBACK;
+    const char* topicCalibration = mqttCreds.valid ? mqttCreds.topic_calibration : TOPIC_CALIBRATION_FALLBACK;
+    
+    bool sub1 = mqttClient.subscribe(topicRelayCmd, 1);
+    bool sub2 = mqttClient.subscribe(topicSensors, 1);
+    bool sub3 = mqttClient.subscribe(topicRelayConfig, 1);
+    bool sub4 = mqttClient.subscribe(topicCalibration, 1);
     
     logMessage(LOG_INFO, "📡 Inscrevendo em tópicos:");
-    logMessage(LOG_INFO, "  • " + String(TOPIC_RELAY_COMMAND) + (sub1 ? " ✅" : " ❌"));
-    logMessage(LOG_INFO, "  • " + String(TOPIC_SENSORS) + (sub2 ? " ✅" : " ❌"));
-    logMessage(LOG_INFO, "  • " + String(TOPIC_RELAY_CONFIG) + (sub3 ? " ✅" : " ❌"));
-    logMessage(LOG_INFO, "  • " + String(TOPIC_CALIBRATION) + (sub4 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(topicRelayCmd) + (sub1 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(topicSensors) + (sub2 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(topicRelayConfig) + (sub3 ? " ✅" : " ❌"));
+    logMessage(LOG_INFO, "  • " + String(topicCalibration) + (sub4 ? " ✅" : " ❌"));
     
     // Publicar estado inicial
     publishRelayStatus();
@@ -1072,6 +1260,9 @@ void publishRelayStatus() {
   doc["device_uuid"] = deviceUUID;
   doc["timestamp"] = millis();
   
+  // ✅ Usar tópico dinâmico ou fallback
+  const char* topicToUse = mqttCreds.valid ? mqttCreds.topic_relay_status : TOPIC_RELAY_STATUS_FALLBACK;
+  
   // ✅ CORREÇÃO CRÍTICA: Formato plano esperado pelo app web
   // App espera: {"relay1": true, "relay2": false, ...}
   // NÃO: {"relays": [{"index": 0, "state": true}, ...]}
@@ -1083,7 +1274,7 @@ void publishRelayStatus() {
   String message;
   serializeJson(doc, message);
   
-  mqttClient.publish(TOPIC_RELAY_STATUS, message.c_str(), true); // Retained message
+  mqttClient.publish(topicToUse, message.c_str(), true); // Retained message
   logMessage(LOG_INFO, "📤 Status publicado: " + message);
 }
 
@@ -1134,7 +1325,10 @@ void publishHeartbeat() {
   String message;
   serializeJson(doc, message);
   
-  mqttClient.publish(TOPIC_HEARTBEAT, message.c_str());
+  // ✅ Usar tópico dinâmico ou fallback
+  const char* topicToUse = mqttCreds.valid ? mqttCreds.topic_heartbeat : TOPIC_HEARTBEAT_FALLBACK;
+  
+  mqttClient.publish(topicToUse, message.c_str());
   logMessage(LOG_DEBUG, "💓 Heartbeat publicado");
 }
 
@@ -1483,6 +1677,7 @@ void setup() {
   // Carregar configurações
   loadWiFiConfig();
   loadRelayConfig();
+  loadMqttCredentials(); // ✅ Carregar credenciais salvas (se houver)
   
   // Carregar RTC do NVS
   prefs.begin("rtc", true);
@@ -1500,6 +1695,15 @@ void setup() {
     logMessage(LOG_WARN, "WiFi falhou, iniciando modo AP");
     startAPMode();
   } else {
+    // ✅ WiFi conectado - tentar autenticação
+    logMessage(LOG_INFO, "🔐 Tentando autenticação...");
+    if (authenticateDevice()) {
+      logMessage(LOG_INFO, "✅ Dispositivo autenticado!");
+    } else {
+      logMessage(LOG_WARN, "⚠️ Autenticação falhou, usando modo fallback");
+      // Continuar mesmo sem autenticação (usar credenciais fallback)
+    }
+    
     // Configurar MQTT
     setupMQTT();
   }
@@ -1539,6 +1743,17 @@ void loop() {
       } else {
         mqttClient.loop();
         updateRTC();
+      }
+      
+      // ✅ Tentar autenticar novamente se ainda não autenticado (a cada 5 minutos)
+      static unsigned long lastAuthAttempt = 0;
+      if (!isAuthenticated && millis() - lastAuthAttempt > 300000) { // 5 min
+        logMessage(LOG_INFO, "🔐 Tentando autenticar novamente...");
+        if (authenticateDevice()) {
+          setupMQTT(); // Reconfigurar MQTT com novas credenciais
+          reconnectMQTT(); // Reconectar imediatamente
+        }
+        lastAuthAttempt = millis();
       }
     }
     
