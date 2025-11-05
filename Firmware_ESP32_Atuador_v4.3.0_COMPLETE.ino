@@ -367,6 +367,8 @@ void checkWiFi() {
   if (millis() - lastWiFiCheck < 10000) return; // Check a cada 10s
   lastWiFiCheck = millis();
   
+  resetWatchdog(); // ✅ Reset antes de check WiFi
+  
   if (WiFi.status() != WL_CONNECTED) {
     logMessage(LOG_WARN, "WiFi desconectado, tentando reconectar...");
     wifiConnected = false;
@@ -764,6 +766,7 @@ void syncNTP() {
   if (!wifiConnected) return;
   
   logMessage(LOG_INFO, "Sincronizando NTP...");
+  resetWatchdog(); // ✅ Reset antes de NTP
   configTime(GMT_OFFSET, DAYLIGHT_OFFSET, NTP_SERVER1, NTP_SERVER2);
   
   struct tm timeinfo;
@@ -837,6 +840,7 @@ bool reconnectMQTT() {
   if (millis() - lastMqttAttempt < 5000) return false; // Evitar tentativas muito frequentes
   
   lastMqttAttempt = millis();
+  resetWatchdog(); // ✅ Reset antes de conectar MQTT
   
   String clientId = "aquasys-actuator-" + deviceUUID;
   logMessage(LOG_INFO, "Conectando MQTT...");
@@ -990,7 +994,9 @@ bool scanAndConnectSensor() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   
+  resetWatchdog(); // ✅ Reset antes de operação longa
   BLEScanResults* foundDevices = pBLEScan->start(BLE_SCAN_TIMEOUT, false);
+  resetWatchdog(); // ✅ Reset após scan
   
   for (int i = 0; i < foundDevices->getCount(); i++) {
     BLEAdvertisedDevice device = foundDevices->getDevice(i);
@@ -1259,28 +1265,28 @@ void updateEmergencyCycle() {
 
 // ==================== SEÇÃO 15: IMPLEMENTAÇÃO - WATCHDOG ====================
 void initWatchdog() {
-  esp_err_t wdt_status = esp_task_wdt_status(NULL);
+  // ✅ Deinicializar se já existir
+  esp_task_wdt_deinit();
   
-  if (wdt_status == ESP_ERR_NOT_FOUND) {
-    esp_task_wdt_config_t wdt_config = {
-      .timeout_ms = WATCHDOG_TIMEOUT * 1000,
-      .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
-      .trigger_panic = true
-    };
-    esp_task_wdt_init(&wdt_config);
+  // ✅ Reconfigurar do zero
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WATCHDOG_TIMEOUT * 1000,
+    .idle_core_mask = 0, // ✅ Não monitorar idle tasks
+    .trigger_panic = true
+  };
+  
+  esp_err_t result = esp_task_wdt_init(&wdt_config);
+  if (result == ESP_OK) {
+    esp_task_wdt_add(NULL); // Adicionar task atual
     logMessage(LOG_INFO, "Watchdog inicializado (" + String(WATCHDOG_TIMEOUT) + "s)");
   } else {
-    logMessage(LOG_INFO, "Watchdog já inicializado");
+    logMessage(LOG_ERROR, "Erro ao inicializar watchdog: " + String(result));
   }
-  
-  esp_task_wdt_add(NULL);
 }
 
 void resetWatchdog() {
-  if (millis() - lastWdtReset > 10000) { // Reset a cada 10s
-    esp_task_wdt_reset();
-    lastWdtReset = millis();
-  }
+  esp_task_wdt_reset(); // ✅ Sempre resetar (sem delay)
+  lastWdtReset = millis();
 }
 
 // ==================== SEÇÃO 16: SETUP ====================
@@ -1338,6 +1344,7 @@ void loop() {
   if (apMode) {
     dnsServer.processNextRequest();
     server.handleClient();
+    resetWatchdog(); // ✅ Reset durante AP mode
     
     // Tentar sair do AP mode após timeout
     if (millis() - apModeStartTime > AP_TIMEOUT) {
@@ -1350,11 +1357,13 @@ void loop() {
   } else {
     // Modo normal
     checkWiFi();
+    resetWatchdog(); // ✅ Reset após WiFi check
     
     // MQTT
     if (wifiConnected) {
       if (!mqttConnected) {
         reconnectMQTT();
+        resetWatchdog(); // ✅ Reset após MQTT
       } else {
         mqttClient.loop();
         updateRTC();
@@ -1366,12 +1375,14 @@ void loop() {
       if (!bleClientActive) {
         setupBLEClient();
         scanAndConnectSensor();
+        resetWatchdog(); // ✅ Reset após BLE scan
       }
       readSensorDataBLE();
     }
     
     // Modo de emergência
     checkEmergencyMode();
+    resetWatchdog(); // ✅ Reset após emergency check
     
     // Lógica de relés
     if (!emergencyMode) {
