@@ -990,10 +990,10 @@ bool scanAndConnectSensor() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   
-  BLEScanResults foundDevices = pBLEScan->start(BLE_SCAN_TIMEOUT, false);
+  BLEScanResults* foundDevices = pBLEScan->start(BLE_SCAN_TIMEOUT, false);
   
-  for (int i = 0; i < foundDevices.getCount(); i++) {
-    BLEAdvertisedDevice device = foundDevices.getDevice(i);
+  for (int i = 0; i < foundDevices->getCount(); i++) {
+    BLEAdvertisedDevice device = foundDevices->getDevice(i);
     
     if (device.getName() == "AquaSys-Sensor") {
       logMessage(LOG_INFO, "✅ Sensor encontrado via BLE!");
@@ -1046,37 +1046,37 @@ void readSensorDataBLE() {
   
   try {
     if (pRemoteCharPH) {
-      std::string value = pRemoteCharPH->readValue();
-      if (value.length() == sizeof(float)) {
-        memcpy(&currentSensorData.ph, value.data(), sizeof(float));
+      String value = pRemoteCharPH->readValue().c_str();
+      if (value.length() >= sizeof(float)) {
+        memcpy(&currentSensorData.ph, value.c_str(), sizeof(float));
       }
     }
     
     if (pRemoteCharEC) {
-      std::string value = pRemoteCharEC->readValue();
-      if (value.length() == sizeof(float)) {
-        memcpy(&currentSensorData.ec, value.data(), sizeof(float));
+      String value = pRemoteCharEC->readValue().c_str();
+      if (value.length() >= sizeof(float)) {
+        memcpy(&currentSensorData.ec, value.c_str(), sizeof(float));
       }
     }
     
     if (pRemoteCharAirTemp) {
-      std::string value = pRemoteCharAirTemp->readValue();
-      if (value.length() == sizeof(float)) {
-        memcpy(&currentSensorData.air_temp, value.data(), sizeof(float));
+      String value = pRemoteCharAirTemp->readValue().c_str();
+      if (value.length() >= sizeof(float)) {
+        memcpy(&currentSensorData.air_temp, value.c_str(), sizeof(float));
       }
     }
     
     if (pRemoteCharHumidity) {
-      std::string value = pRemoteCharHumidity->readValue();
-      if (value.length() == sizeof(float)) {
-        memcpy(&currentSensorData.humidity, value.data(), sizeof(float));
+      String value = pRemoteCharHumidity->readValue().c_str();
+      if (value.length() >= sizeof(float)) {
+        memcpy(&currentSensorData.humidity, value.c_str(), sizeof(float));
       }
     }
     
     if (pRemoteCharWaterTemp) {
-      std::string value = pRemoteCharWaterTemp->readValue();
-      if (value.length() == sizeof(float)) {
-        memcpy(&currentSensorData.water_temp, value.data(), sizeof(float));
+      String value = pRemoteCharWaterTemp->readValue().c_str();
+      if (value.length() >= sizeof(float)) {
+        memcpy(&currentSensorData.water_temp, value.c_str(), sizeof(float));
       }
     }
     
