@@ -100,7 +100,7 @@ serve(async (req) => {
     // Check if device exists and is registered
     const { data: device, error: deviceError } = await supabaseClient
       .from('devices')
-      .select('id, device_uuid, mqtt_password_hash, firmware_version')
+      .select('id, device_uuid, firmware_version')
       .eq('device_uuid', device_uuid)
       .single();
 
@@ -113,6 +113,21 @@ serve(async (req) => {
           message: 'Please register this device first through the web interface'
         }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ✅ SOLUÇÃO A: Usar credenciais compartilhadas do HiveMQ
+    const hivemqUsername = Deno.env.get('HIVEMQ_USERNAME');
+    const hivemqPassword = Deno.env.get('HIVEMQ_PASSWORD');
+
+    if (!hivemqUsername || !hivemqPassword) {
+      console.error('❌ HiveMQ credentials not configured');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Server configuration error',
+          message: 'MQTT credentials not available'
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -136,18 +151,20 @@ serve(async (req) => {
       console.log(`✅ Auth success: ${device_uuid} (v${firmware_version || device.firmware_version}) from IP ${clientIP}`);
     }
 
-    // Return MQTT credentials
+    // ✅ Return MQTT credentials - Shared credentials for all devices
     const response = {
       success: true,
       mqtt_config: {
         broker: Deno.env.get('MQTT_BROKER') || 'wss://8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud:8884/mqtt',
-        username: device_uuid,
-        password: device.mqtt_password_hash,
+        username: hivemqUsername,
+        password: hivemqPassword,
         client_id: `${device_uuid}_${Date.now()}`,
         topics: {
           sensors: `aquasys/${device_uuid}/sensors`,
           relay_status: `aquasys/${device_uuid}/relay/status`,
           relay_command: `aquasys/${device_uuid}/relay/command`,
+          relay_config: `aquasys/${device_uuid}/relay/config`,
+          calibration: `aquasys/${device_uuid}/calibration`,
           heartbeat: `aquasys/${device_uuid}/heartbeat`
         }
       }
