@@ -13,6 +13,7 @@ interface MqttContextType {
   setRelayAuto: (relayIndex: number) => Promise<void>;
   connect: () => void;
   disconnect: () => void;
+  client?: any;
 }
 
 // Create context with undefined default to enforce provider usage
@@ -22,8 +23,24 @@ const MqttContext = createContext<MqttContextType | undefined>(undefined);
 export const MqttProvider = ({ children }: { children: ReactNode }) => {
   const mqtt = useMqtt();
 
+  // ✅ CORREÇÃO: Garantir que sempre temos um valor válido
+  // Mesmo durante a inicialização, fornecemos um objeto com valores padrão
+  const contextValue: MqttContextType = {
+    isConnected: mqtt.isConnected ?? false,
+    lastMessage: mqtt.lastMessage ?? null,
+    lastSensorUpdate: mqtt.lastSensorUpdate ?? 0,
+    sensorTimeout: mqtt.sensorTimeout ?? false,
+    publish: mqtt.publish,
+    publishRelayCommand: mqtt.publishRelayCommand,
+    publishRelayConfig: mqtt.publishRelayConfig,
+    setRelayAuto: mqtt.setRelayAuto,
+    connect: mqtt.connect,
+    disconnect: mqtt.disconnect,
+    client: mqtt.client,
+  };
+
   return (
-    <MqttContext.Provider value={mqtt}>
+    <MqttContext.Provider value={contextValue}>
       {children}
     </MqttContext.Provider>
   );
