@@ -797,21 +797,48 @@ void checkWiFi() {
 void startAPMode() {
   logMessage(LOG_INFO, "🔶 Iniciando modo AP...");
   
+  // Desconectar WiFi completamente primeiro
+  WiFi.disconnect(true);
+  delay(100);
+  
+  // Configurar como AP
   WiFi.mode(WIFI_AP);
+  delay(100);
+  
   String apSSID = String(AP_SSID_PREFIX) + deviceUUID.substring(4);
-  WiFi.softAP(apSSID.c_str(), AP_PASSWORD);
   
+  // Configurar IP antes de iniciar o AP
   IPAddress apIP(192, 168, 4, 1);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  IPAddress gateway(192, 168, 4, 1);
+  IPAddress subnet(255, 255, 255, 0);
   
+  WiFi.softAPConfig(apIP, gateway, subnet);
+  
+  // Iniciar o AP
+  bool apStarted = WiFi.softAP(apSSID.c_str(), AP_PASSWORD);
+  
+  if (!apStarted) {
+    logMessage(LOG_ERROR, "❌ Falha ao iniciar AP");
+    return;
+  }
+  
+  delay(500);
+  
+  // Iniciar DNS Server para captive portal
+  dnsServer.setTTL(300);
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(53, "*", apIP);
+  
+  // Iniciar Web Server
   setupWebServer();
   server.begin();
   
   apMode = true;
   apModeStartTime = millis();
   
-  logMessage(LOG_INFO, "✅ AP ativo: " + apSSID + " / Senha: " + String(AP_PASSWORD));
+  logMessage(LOG_INFO, "✅ AP ativo: " + apSSID);
+  logMessage(LOG_INFO, "Senha: " + String(AP_PASSWORD));
+  logMessage(LOG_INFO, "IP: " + WiFi.softAPIP().toString());
   logMessage(LOG_INFO, "Portal: http://192.168.4.1");
   
   String apMessage = "Modo AP Ativo\nSSID: " + apSSID;
@@ -1119,11 +1146,25 @@ void handleStatus() {
 
 void handleNotFound() {
   // Captive Portal - redirecionar TODAS as requisições para a página principal
+  logMessage(LOG_DEBUG, "Captive portal redirect: " + server.uri());
+  
+  // Se for uma requisição para gerar_204 ou detectar portal (Android/iOS)
+  if (server.uri() == "/generate_204" || 
+      server.uri() == "/gen_204" ||
+      server.uri() == "/hotspot-detect.html" ||
+      server.uri() == "/canonical.html" ||
+      server.uri() == "/success.txt" ||
+      server.uri() == "/ncsi.txt") {
+    handleRoot();
+    return;
+  }
+  
+  // Redirecionar todas as outras requisições
   server.sendHeader("Location", "http://192.168.4.1/", true);
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.sendHeader("Pragma", "no-cache");
   server.sendHeader("Expires", "-1");
-  server.send(302, "text/html", "");
+  server.send(302, "text/html", "<html><head><meta http-equiv='refresh' content='0;url=http://192.168.4.1/'></head><body>Redirecionando...</body></html>");
 }
 
 // ==================== NTP ====================
@@ -1534,6 +1575,11 @@ void setup() {
   // Inicializar BLE
   setupBLE();
   
+  // Fazer uma leitura inicial dos sensores
+  displayMessage("Lendo sensores...");
+  delay(1000);
+  readSensors();
+  
   // Conectar WiFi
   if (!connectWiFi()) {
     logMessage(LOG_WARN, "Falha WiFi, iniciando AP...");
@@ -1556,61 +1602,62 @@ void setup() {
 void loop() {
   resetWatchdog();
   
-  // Modo AP
+  // Modo AP - processar DNS e Web Server
   if (apMode) {
     dnsServer.processNextRequest();
     server.handleClient();
     
+    // Timeout do modo AP
     if (millis() - apModeStartTime > AP_TIMEOUT) {
       stopAPMode();
       connectWiFi();
     }
-    
-    // Atualizar display e botões mesmo em modo AP
-    handleButtons();
-    updateDisplay();
-    
-    delay(10);
-    return;
   }
   
-  // Verificar WiFi
-  checkWiFi();
-  
-  // Verificar MQTT
-  if (wifiConnected) {
-    if (!mqttConnected) {
-      if (!isAuthenticated) {
-        authenticateDevice();
+  // Verificar WiFi (se não estiver em modo AP)
+  if (!apMode) {
+    checkWiFi();
+    
+    // Verificar MQTT
+    if (wifiConnected) {
+      if (!mqttConnected) {
+        if (!isAuthenticated) {
+          authenticateDevice();
+        }
+        reconnectMQTT();
       }
-      reconnectMQTT();
-    }
-    
-    if (mqttConnected) {
-      mqttClient.loop();
+      
+      if (mqttConnected) {
+        mqttClient.loop();
+      }
     }
   }
   
-  // Ler sensores
+  // Ler sensores (SEMPRE, mesmo em modo AP)
   if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL) {
     lastSensorRead = millis();
     readSensors();
     
     if (currentData.valid) {
-      publishSensorData();
+      // Publicar via BLE sempre
       publishDataToBLE();
+      
+      // Publicar via MQTT apenas se conectado
+      if (mqttConnected && !apMode) {
+        publishSensorData();
+      }
     }
   }
   
-  // Heartbeat
-  if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+  // Heartbeat (apenas se conectado)
+  if (!apMode && mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
     lastHeartbeat = millis();
     publishHeartbeat();
   }
   
-  // Atualizar interface OLED
+  // Atualizar interface OLED (sempre)
   handleButtons();
   updateDisplay();
   
-  delay(50);
+  delay(apMode ? 10 : 50);
 }
