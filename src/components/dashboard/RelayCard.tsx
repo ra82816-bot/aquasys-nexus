@@ -27,24 +27,28 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   // ✅ CONFIRMAÇÃO VISUAL: Detectar confirmação via MQTT
   useEffect(() => {
     if (commandStatus === 'pending' && lastMessage?.topic === 'aquasys/relay/status') {
+      console.log(`🔍 [RelayCard ${relayIndex}] Verificando confirmação:`, {
+        payload: lastMessage.payload,
+        expectedState: !isOn,
+        currentState: isOn
+      });
+      
       // ✅ CORREÇÃO: ESP32 envia relay0-relay7
       const relayKey = `relay${relayIndex}`;
       const receivedState = lastMessage.payload[relayKey];
       
+      console.log(`🔍 [RelayCard ${relayIndex}] Estado recebido para ${relayKey}:`, receivedState);
+      
       if (receivedState !== undefined) {
-        const expectedState = !isOn; // Estado que esperamos após o comando
+        setCommandStatus('confirmed');
+        setIsLoading(false);
         
-        if (receivedState === expectedState) {
-          setCommandStatus('confirmed');
-          setIsLoading(false);
-          
-          toast({
-            title: "✅ Confirmado",
-            description: `Relé ${relayIndex + 1} ${expectedState ? 'ligado' : 'desligado'} com sucesso`,
-          });
-          
-          setTimeout(() => setCommandStatus('idle'), 2000);
-        }
+        toast({
+          title: "✅ Confirmado",
+          description: `Relé ${relayIndex} respondeu com estado: ${receivedState ? 'LIGADO' : 'DESLIGADO'}`,
+        });
+        
+        setTimeout(() => setCommandStatus('idle'), 2000);
       }
     }
   }, [lastMessage, commandStatus, relayIndex, isOn, toast]);

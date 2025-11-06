@@ -41,23 +41,31 @@ export const useMqtt = () => {
       console.log('✅ MQTT conectado!');
       setIsConnected(true);
       
-      // Subscribe nos tópicos relevantes
-      const topics = [
-        MQTT_CONFIG.topics.sensors,
-        MQTT_CONFIG.topics.relayStatus,
-        'aquasys/relay/status/wifi',
-        'aquasys/heartbeat', // ✅ FASE 1: Subscribe em heartbeat
-      ];
-      
-      client.subscribe(topics, { qos: 1 }, (err) => {
-        if (err) {
-          console.error('Erro ao subscrever:', err);
-          // Não mostrar toast de erro automaticamente
-          // O status será exibido no componente MqttStatus
-        } else {
-          console.log('✅ Inscrito nos tópicos:', topics);
+      // ✅ CORREÇÃO: Aguardar confirmação de conexão antes de subscrever
+      setTimeout(() => {
+        if (!client.connected) {
+          console.warn('⚠️ Cliente desconectou antes de subscrever');
+          return;
         }
-      });
+        
+        // Subscribe nos tópicos relevantes
+        const topics = [
+          MQTT_CONFIG.topics.sensors,
+          MQTT_CONFIG.topics.relayStatus,
+          'aquasys/relay/status/wifi',
+          'aquasys/heartbeat', // ✅ FASE 1: Subscribe em heartbeat
+        ];
+        
+        client.subscribe(topics, { qos: 1 }, (err) => {
+          if (err) {
+            console.error('Erro ao subscrever:', err);
+            // Não mostrar toast de erro automaticamente
+            // O status será exibido no componente MqttStatus
+          } else {
+            console.log('✅ Inscrito nos tópicos:', topics);
+          }
+        });
+      }, 100); // Pequeno delay para garantir estabilidade da conexão
     });
 
     client.on('message', async (topic, payload) => {
