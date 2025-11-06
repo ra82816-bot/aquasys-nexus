@@ -805,7 +805,8 @@ void startAPMode() {
   logMessage(LOG_INFO, "✅ AP ativo: " + apSSID + " / Senha: " + String(AP_PASSWORD));
   logMessage(LOG_INFO, "Portal: http://192.168.4.1");
   
-  displayMessage("Modo AP Ativo\nSSID: " + apSSID);
+  String apMessage = "Modo AP Ativo\nSSID: " + apSSID;
+  displayMessage(apMessage.c_str());
 }
 
 void stopAPMode() {
