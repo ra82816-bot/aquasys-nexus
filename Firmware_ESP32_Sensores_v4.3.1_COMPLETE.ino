@@ -600,16 +600,28 @@ void handleScan() {
   resetWatchdog();
   logMessage(LOG_INFO, "Escaneando redes WiFi...");
   
-  int n = WiFi.scanNetworks();
+  // Usar modo assíncrono para não bloquear o watchdog
+  int n = WiFi.scanNetworks(false, false);  // async mode
+  
+  // Aguardar scan completo com resets periódicos
+  while (n == WIFI_SCAN_RUNNING) {
+    delay(100);
+    resetWatchdog();
+    n = WiFi.scanComplete();
+  }
+  
+  resetWatchdog();
   
   StaticJsonDocument<1024> doc;
   JsonArray networks = doc.createNestedArray("networks");
   
-  for (int i = 0; i < n && i < 10; i++) {
-    JsonObject net = networks.createNestedObject();
-    net["ssid"] = WiFi.SSID(i);
-    net["rssi"] = WiFi.RSSI(i);
-    net["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  if (n >= 0) {
+    for (int i = 0; i < n && i < 10; i++) {
+      JsonObject net = networks.createNestedObject();
+      net["ssid"] = WiFi.SSID(i);
+      net["rssi"] = WiFi.RSSI(i);
+      net["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+    }
   }
   
   String response;
@@ -617,6 +629,7 @@ void handleScan() {
   server.send(200, "application/json", response);
   
   WiFi.scanDelete();
+  resetWatchdog();
 }
 
 void handleSave() {
@@ -1336,12 +1349,20 @@ void readSensors() {
 
 // ==================== SEÇÃO 15: WATCHDOG ====================
 void initWatchdog() {
-  esp_task_wdt_config_t wdt_config = {
-    .timeout_ms = WATCHDOG_TIMEOUT * 1000,
-    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
-    .trigger_panic = true
-  };
-  esp_task_wdt_init(&wdt_config);
+  // Verificar se watchdog já foi inicializado (ESP32 Core 3.x)
+  esp_task_wdt_status_t status = esp_task_wdt_status(NULL);
+  
+  if (status == ESP_ERR_NOT_FOUND) {
+    // Watchdog não está inicializado, inicializar agora
+    esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = WATCHDOG_TIMEOUT * 1000,
+      .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+      .trigger_panic = true
+    };
+    esp_task_wdt_init(&wdt_config);
+  }
+  
+  // Adicionar task atual ao watchdog
   esp_task_wdt_add(NULL);
   logMessage(LOG_INFO, "✅ Watchdog iniciado (" + String(WATCHDOG_TIMEOUT) + "s)");
 }
