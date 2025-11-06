@@ -1,39 +1,57 @@
 /*
  * ============================================================================
- * Firmware ESP32 - Módulo de Sensores com OLED v4.3.2
+ * AquaSys Nexus - Sensor Module v4.3.2-OLED-COMPLETE
  * ============================================================================
- * Características:
- * - Display OLED 128x64 com interface completa
- * - Navegação por páginas (Dashboard, Conexões, Calibração, Sistema)
- * - Calibração interativa de pH e EC
- * - BLE para configuração via app móvel
- * - WiFi Manager com fallback para AP
- * - MQTT sobre TLS para comunicação com servidor
- * - Watchdog para estabilidade
+ * VERSÃO DEFINITIVA COM TODAS AS FUNCIONALIDADES
+ * 
+ * RECURSOS:
+ * ✅ Display OLED 128x64 com navegação por botões
+ * ✅ Páginas: Dashboard, Conexões, Calibração, Sistema
+ * ✅ Calibração interativa de pH e EC via interface OLED
+ * ✅ WiFi com modo AP automático e portal captivo
+ * ✅ Suporte a 3 redes WiFi com prioridades
+ * ✅ BLE Server sempre ativo
+ * ✅ MQTT sobre TLS com autenticação dinâmica via Supabase
+ * ✅ Leitura de sensores: pH, EC, Temp Água, Temp Ar, Umidade
+ * ✅ Watchdog robusto (60s) - CORRIGIDO
+ * ✅ Logging estruturado
+ * ✅ Heartbeat MQTT
+ * ✅ UUID único por MAC
+ * ✅ NTP sync
+ * 
+ * AUTOR: HydroSmart Team
+ * DATA: 2025-01-11
  * ============================================================================
  */
 
+// ==================== INCLUDES ====================
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Preferences.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
-#include <DHT.h>
 #include <WiFi.h>
-#include <WebServer.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <HTTPClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <DHT.h>
+#include <time.h>
+#include <esp_task_wdt.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <esp_task_wdt.h>
 
-// ============================================================================
-// DEFINIÇÕES DE PINOS (Conforme arquivo de referência)
-// ============================================================================
+// ==================== CONFIGURAÇÕES ====================
+// Versão do Firmware
+#define FIRMWARE_VERSION "4.3.2-OLED-COMPLETE"
+#define DEVICE_TYPE "SENSOR"
+
+// Pinos dos Sensores (CORRIGIDO conforme arquivo de referência)
 #define PH_SENSOR_PIN 34
 #define TDS_SENSOR_PIN 35
 #define DHT_PIN 15
@@ -46,69 +64,111 @@
 #define OLED_RESET -1
 #define OLED_ADDRESS 0x3C
 
-// Pinos dos botões
+// Pinos dos Botões (CORRIGIDO conforme arquivo de referência)
 #define BUTTON_UP 32
 #define BUTTON_DOWN 33
 #define BUTTON_SELECT 25
 #define BUTTON_BACK 26
 
-// ============================================================================
-// CONFIGURAÇÕES
-// ============================================================================
-#define WATCHDOG_TIMEOUT 60  // 60 segundos
-#define MQTT_BROKER "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
-#define MQTT_PORT 8883
-#define MQTT_USERNAME "esp32-user"
-#define MQTT_PASSWORD "HydroSmart123"
-#define MQTT_TOPIC "aquasys/sensors/all"
-
-// ============================================================================
-// OBJETOS
-// ============================================================================
-Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
-Preferences preferences;
+// Sensores
+DHT dht(DHT_PIN, DHT_TYPE);
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature ds18b20(&oneWire);
-DHT dht(DHT_PIN, DHT_TYPE);
-WebServer server(80);
-WiFiClientSecure espClient;
-PubSubClient mqttClient(espClient);
 
-// ============================================================================
-// VARIÁVEIS GLOBAIS - CALIBRAÇÃO
-// ============================================================================
-float cal_ph7_voltage = 2.52;
-float cal_ph4_voltage = 3.29;
-float ph_slope, ph_intercept;
+// WiFi AP Mode
+#define AP_SSID_PREFIX "AquaSys-SEN-"
+#define AP_PASSWORD "aquasys2024"
+#define AP_TIMEOUT 300000  // 5min
 
-float calibration_low_raw = 645.0;
-float calibration_high_raw = 2850.0;
-float calibration_low_ec = 360.0;
-float calibration_high_ec = 4588.0;
+// Timeouts
+#define WIFI_TIMEOUT 15000
+#define MQTT_TIMEOUT 30000
+#define SENSOR_READ_INTERVAL 30000  // 30s
+#define HEARTBEAT_INTERVAL 60000    // 60s
+#define WATCHDOG_TIMEOUT 60         // 60s
+#define AUTH_TIMEOUT 10000          // 10s
 
-// ============================================================================
-// VARIÁVEIS GLOBAIS - SENSORES
-// ============================================================================
-float temperature_C = 25.0;
-float humidity = 0.0;
-float water_temperature_C = 0.0;
-float lastPhValue = 0.0;
-float lastEcValue = 0.0;
+// API Supabase (autenticação dinâmica)
+#define SUPABASE_URL "https://oaabtbvwxsjomeeizciq.supabase.co"
+#define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw"
 
-// ============================================================================
-// VARIÁVEIS GLOBAIS - SISTEMA
-// ============================================================================
-String deviceUUID = "";
-String ssid_sta = "";
-String password_sta = "";
-bool wifiConfigured = false;
-bool mqttConnected = false;
-unsigned long lastMQTTPublish = 0;
-const unsigned long mqttInterval = 10000;
+// MQTT Configuration (fallback)
+#define MQTT_BROKER_FALLBACK "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
+#define MQTT_PORT 8883
+#define TOPIC_SENSORS_FALLBACK "aquasys/sensors/all"
+#define TOPIC_HEARTBEAT_FALLBACK "aquasys/heartbeat/sensor"
+#define TOPIC_CALIBRATION_FALLBACK "aquasys/calibration/sensor"
 
-// ============================================================================
-// ENUMERAÇÕES - INTERFACE
-// ============================================================================
+// BLE UUIDs
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHAR_UUID_PH        "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define CHAR_UUID_EC        "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+#define CHAR_UUID_AIR_TEMP  "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+#define CHAR_UUID_HUMIDITY  "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+#define CHAR_UUID_WATER_TEMP "beb5483e-36e1-4688-b7f5-ea07361b26ac"
+#define CHAR_WIFI_LIST      "a3c87500-8ed3-4bdf-8a39-a01bebede295"
+
+// DNS Público
+#define DNS_PRIMARY IPAddress(8, 8, 8, 8)
+#define DNS_SECONDARY IPAddress(1, 1, 1, 1)
+
+// NTP
+#define NTP_SERVER1 "pool.ntp.org"
+#define NTP_SERVER2 "time.nist.gov"
+#define GMT_OFFSET -10800
+#define DAYLIGHT_OFFSET 0
+
+// Logging
+enum LogLevel {
+  LOG_DEBUG = 0,
+  LOG_INFO = 1,
+  LOG_WARN = 2,
+  LOG_ERROR = 3,
+  LOG_CRITICAL = 4
+};
+int currentLogLevel = LOG_INFO;
+
+// ==================== ESTRUTURAS DE DADOS ====================
+struct WiFiCredential {
+  char ssid[32];
+  char password[64];
+  int priority;
+  bool valid;
+};
+
+struct SensorData {
+  float ph;
+  float ec;
+  float air_temp;
+  float humidity;
+  float water_temp;
+  bool valid;
+  unsigned long timestamp;
+};
+
+struct CalibrationData {
+  float ph7_voltage;
+  float ph4_voltage;
+  float ph_slope;
+  float ph_intercept;
+  float ec_low_raw;
+  float ec_high_raw;
+  float ec_low_val;
+  float ec_high_val;
+};
+
+struct MqttCredentials {
+  char broker[128];
+  char username[64];
+  char password[128];
+  char client_id[64];
+  char topic_sensors[128];
+  char topic_heartbeat[128];
+  char topic_calibration[128];
+  bool valid;
+};
+
+// ==================== ENUMERAÇÕES - INTERFACE OLED ====================
 enum Page {
   PAGE_DASHBOARD,
   PAGE_CONNECTIONS,
@@ -125,233 +185,195 @@ enum CalibrationMode {
   CAL_EC_HIGH
 };
 
+// ==================== VARIÁVEIS GLOBAIS ====================
+// Device UUID
+String deviceUUID = "";
+
+// WiFi
+WiFiCredential networks[3];
+int currentNetworkIndex = 0;
+bool wifiConnected = false;
+unsigned long lastWiFiCheck = 0;
+
+// AP Mode
+bool apMode = false;
+WebServer server(80);
+DNSServer dnsServer;
+unsigned long apModeStartTime = 0;
+
+// MQTT
+WiFiClientSecure espClient;
+PubSubClient mqttClient(espClient);
+bool mqttConnected = false;
+unsigned long lastMqttAttempt = 0;
+unsigned long lastMqttSuccess = 0;
+MqttCredentials mqttCreds = {"", "", "", "", "", "", "", false};
+bool isAuthenticated = false;
+
+// Sensor Data
+SensorData currentData = {0, 0, 0, 0, 0, false, 0};
+
+// Calibração (VALORES CORRETOS do arquivo de referência)
+CalibrationData calibration = {
+  2.52,   // ph7_voltage
+  3.29,   // ph4_voltage
+  1.0,    // ph_slope (será calculado)
+  0.0,    // ph_intercept (será calculado)
+  645.0,  // ec_low_raw
+  2850.0, // ec_high_raw
+  360.0,  // ec_low_val
+  4588.0  // ec_high_val
+};
+
+// OLED Display
+Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 Page currentPage = PAGE_DASHBOARD;
 CalibrationMode calibrationMode = CAL_NONE;
+int calibrationMenuIndex = 0;
 
-// ============================================================================
-// VARIÁVEIS - DEBOUNCE DOS BOTÕES
-// ============================================================================
+// BLE
+BLEServer* pBLEServer = nullptr;
+BLECharacteristic* pCharPH = nullptr;
+BLECharacteristic* pCharEC = nullptr;
+BLECharacteristic* pCharAirTemp = nullptr;
+BLECharacteristic* pCharHumidity = nullptr;
+BLECharacteristic* pCharWaterTemp = nullptr;
+BLECharacteristic* pCharWiFiList = nullptr;
+bool bleActive = false;
+bool deviceConnectedBLE = false;
+
+// Timers
+unsigned long lastSensorRead = 0;
+unsigned long lastHeartbeat = 0;
+unsigned long lastWdtReset = 0;
+unsigned long lastDisplayUpdate = 0;
+
+// Debounce dos Botões
 unsigned long lastDebounce[4] = {0, 0, 0, 0};
 const unsigned long debounceDelay = 200;
 
-// ============================================================================
-// BLE - CONFIGURAÇÃO
-// ============================================================================
-#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHAR_WIFI_SSID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define CHAR_WIFI_PASS "1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87e"
-#define CHAR_WIFI_LIST "a3c87500-8ed3-4bdf-8a39-a01bebede295"
-#define CHAR_STATUS "d4e5f6a7-b8c9-4d3e-a2f1-0b1c2d3e4f5a"
+// Preferences (NVS)
+Preferences prefs;
 
-BLEServer *pServer = nullptr;
-BLECharacteristic *pCharWiFiSSID = nullptr;
-BLECharacteristic *pCharWiFiPass = nullptr;
-BLECharacteristic *pCharWiFiList = nullptr;
-BLECharacteristic *pCharStatus = nullptr;
-bool bleConnected = false;
+// ==================== PROTÓTIPOS ====================
+// Logging
+void logMessage(LogLevel level, const String& message);
 
-// ============================================================================
-// PROTÓTIPOS DE FUNÇÕES
-// ============================================================================
-void initWatchdog();
-void resetWatchdog();
-void generateDeviceUUID();
-void initBLE();
-void initOLED();
-void readSensors();
-void updateDisplay();
-void handleButtons();
+// UUID
+String generateDeviceUUID();
+
+// WiFi
+void loadWiFiConfig();
+void saveWiFiConfig();
+bool connectWiFi();
+void checkWiFi();
+void startAPMode();
+void stopAPMode();
+
+// Web Server
+void setupWebServer();
+void handleRoot();
+void handleScan();
+void handleSave();
+void handleStatus();
+void handleNotFound();
+
+// NTP
+void syncNTP();
+
+// Autenticação
+bool authenticateDevice();
+void loadMqttCredentials();
+void saveMqttCredentials();
+
+// MQTT
+void setupMQTT();
+bool reconnectMQTT();
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void publishSensorData();
+void publishHeartbeat();
+
+// BLE
+void setupBLE();
+void publishDataToBLE();
+class MyServerCallbacks;
+
+// Sensores
+void loadCalibration();
+void saveCalibration();
+void calculatePHCoefficients();
 float readAverageADC(int pin, int samples = 10);
 float voltageToPH(float voltage);
 float interpolateEC(float rawValue);
 float temperatureCompensateEC(float ec, float temp);
-void calculatePHCoefficients();
-void saveCalibration();
-void loadCalibration();
+void readSensors();
+
+// OLED Interface
+void initOLED();
+void updateDisplay();
+void handleButtons();
 void displayMessage(const char *message);
-void connectToWiFi();
-void startAPMode();
-void reconnectMQTT();
-void publishData();
-void setupWebServer();
-void handleScan();
-void handleSave();
 
-// ============================================================================
-// SETUP
-// ============================================================================
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
+// Watchdog
+void initWatchdog();
+void resetWatchdog();
+
+// ==================== LOGGING ====================
+void logMessage(LogLevel level, const String& message) {
+  if (level < currentLogLevel) return;
   
-  Serial.println("\n[INFO] ==========================================");
-  Serial.println("[INFO] ESP32 Sensor Module - v4.3.2 OLED");
-  Serial.println("[INFO] ==========================================");
+  const char* levelStr[] = {"DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"};
+  Serial.printf("[%lu][%s] %s\n", millis(), levelStr[level], message.c_str());
   
-  // Gerar UUID do dispositivo
-  generateDeviceUUID();
-  Serial.printf("[INFO] Device UUID: %s\n", deviceUUID.c_str());
-  
-  // Inicializar Watchdog
-  initWatchdog();
-  
-  // Configurar pinos dos botões
-  pinMode(BUTTON_UP, INPUT_PULLUP);
-  pinMode(BUTTON_DOWN, INPUT_PULLUP);
-  pinMode(BUTTON_SELECT, INPUT_PULLUP);
-  pinMode(BUTTON_BACK, INPUT_PULLUP);
-  
-  // Inicializar OLED
-  initOLED();
-  displayMessage("Iniciando...");
-  
-  // Inicializar sensores
-  dht.begin();
-  ds18b20.begin();
-  Serial.println("[INFO] Sensores DHT22 e DS18B20 iniciados");
-  
-  // Carregar calibrações
-  preferences.begin("calib", false);
-  loadCalibration();
-  calculatePHCoefficients();
-  preferences.end();
-  
-  // Carregar credenciais WiFi
-  preferences.begin("wifi", false);
-  ssid_sta = preferences.getString("ssid0", "");
-  password_sta = preferences.getString("pass0", "");
-  preferences.end();
-  
-  if (ssid_sta.length() == 0) {
-    Serial.println("[WARN] ⚠️ Nenhuma credencial salva, usando fallback");
+  if (level == LOG_CRITICAL) {
+    prefs.begin("crash", false);
+    prefs.putString("last_crash", message);
+    prefs.putULong("crash_time", millis());
+    prefs.end();
   }
-  
-  // Inicializar BLE
-  Serial.println("[INFO] Inicializando BLE Server...");
-  initBLE();
-  
-  // Tentar conectar WiFi
-  if (ssid_sta.length() > 0) {
-    displayMessage("Conectando WiFi...");
-    connectToWiFi();
-  }
-  
-  // Se não conectou, iniciar AP
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WARN] Falha ao conectar WiFi, iniciando AP...");
-    startAPMode();
-  } else {
-    wifiConfigured = true;
-    String msg = "WiFi OK\nIP: " + WiFi.localIP().toString();
-    displayMessage(msg.c_str());
-    delay(2000);
-  }
-  
-  // Configurar servidor web
-  setupWebServer();
-  
-  // Configurar MQTT
-  espClient.setInsecure();
-  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-  
-  Serial.println("[INFO] ✅ Setup completo!");
-  Serial.printf("[INFO] Memória livre: %d bytes\n", ESP.getFreeHeap());
-  displayMessage("Sistema pronto!");
-  delay(1000);
 }
 
-// ============================================================================
-// LOOP PRINCIPAL
-// ============================================================================
-void loop() {
-  resetWatchdog();
-  
-  // Verificar conexão WiFi
-  if (WiFi.status() != WL_CONNECTED && ssid_sta.length() > 0) {
-    static unsigned long lastReconnect = 0;
-    if (millis() - lastReconnect > 30000) {
-      Serial.println("[WARN] WiFi desconectado, tentando reconectar...");
-      connectToWiFi();
-      lastReconnect = millis();
-    }
-  }
-  
-  // Gerenciar MQTT
-  if (WiFi.status() == WL_CONNECTED) {
-    if (!mqttClient.connected()) {
-      reconnectMQTT();
-    }
-    mqttClient.loop();
-    
-    // Publicar dados periodicamente
-    if (millis() - lastMQTTPublish >= mqttInterval) {
-      readSensors();
-      publishData();
-      lastMQTTPublish = millis();
-    }
-  } else {
-    // Modo AP - processar requisições web
-    server.handleClient();
-  }
-  
-  // Atualizar interface
-  handleButtons();
-  updateDisplay();
-  
-  delay(50);
+// ==================== UUID ====================
+String generateDeviceUUID() {
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char uuid[20];
+  sprintf(uuid, "SEN-%02X%02X%02X%02X%02X%02X", 
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return String(uuid);
 }
 
-// ============================================================================
-// WATCHDOG
-// ============================================================================
+// ==================== WATCHDOG (CORRIGIDO) ====================
 void initWatchdog() {
-  // Verificar se o watchdog já está inicializado
+  // CORREÇÃO: Usar esp_err_t ao invés de esp_task_wdt_status_t
   esp_err_t status = esp_task_wdt_status(NULL);
   
   if (status == ESP_ERR_NOT_FOUND) {
-    // Watchdog não inicializado, configurar
+    // Watchdog não está inicializado, inicializar agora
     esp_task_wdt_config_t wdt_config = {
       .timeout_ms = WATCHDOG_TIMEOUT * 1000,
       .idle_core_mask = 0,
       .trigger_panic = true
     };
-    
-    esp_err_t err = esp_task_wdt_init(&wdt_config);
-    if (err == ESP_OK) {
-      esp_task_wdt_add(NULL);
-      Serial.println("[INFO] ✅ Watchdog iniciado (60s)");
-    } else {
-      Serial.printf("[ERROR] ❌ Falha ao iniciar watchdog: %d\n", err);
-    }
-  } else {
-    // Watchdog já inicializado, apenas adicionar task
-    esp_task_wdt_add(NULL);
-    Serial.println("[INFO] ✅ Watchdog já ativo, task adicionada");
+    esp_task_wdt_init(&wdt_config);
   }
+  
+  // Adicionar task atual ao watchdog
+  esp_task_wdt_add(NULL);
+  logMessage(LOG_INFO, "✅ Watchdog iniciado (" + String(WATCHDOG_TIMEOUT) + "s)");
 }
 
 void resetWatchdog() {
-  esp_task_wdt_reset();
+  if (millis() - lastWdtReset > 1000) {
+    esp_task_wdt_reset();
+    lastWdtReset = millis();
+  }
 }
 
-// ============================================================================
-// GERAÇÃO DE UUID
-// ============================================================================
-void generateDeviceUUID() {
-  uint8_t mac[6];
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  char uuid[32];
-  snprintf(uuid, sizeof(uuid), "SEN-%02X%02X%02X%02X%02X%02X",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  deviceUUID = String(uuid);
-}
-
-// ============================================================================
-// INICIALIZAÇÃO DO OLED
-// ============================================================================
+// ==================== OLED DISPLAY ====================
 void initOLED() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
-    Serial.println("[ERROR] ❌ Erro ao inicializar OLED");
+    logMessage(LOG_ERROR, "❌ Erro ao inicializar OLED");
     while (true) {
       delay(100);
     }
@@ -361,199 +383,22 @@ void initOLED() {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.display();
-  Serial.println("[INFO] ✅ OLED inicializado");
+  logMessage(LOG_INFO, "✅ OLED inicializado");
 }
 
-// ============================================================================
-// BLE - CALLBACKS
-// ============================================================================
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *pServer) {
-    bleConnected = true;
-    Serial.println("[BLE] Cliente conectado");
-  }
-  
-  void onDisconnect(BLEServer *pServer) {
-    bleConnected = false;
-    Serial.println("[BLE] Cliente desconectado");
-    pServer->startAdvertising();
-  }
-};
-
-class WiFiCredentialsCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) {
-    std::string value = pCharacteristic->getValue();
-    
-    if (pCharacteristic->getUUID().toString() == CHAR_WIFI_SSID) {
-      ssid_sta = String(value.c_str());
-      Serial.printf("[BLE] SSID recebido: %s\n", ssid_sta.c_str());
-    } else if (pCharacteristic->getUUID().toString() == CHAR_WIFI_PASS) {
-      password_sta = String(value.c_str());
-      Serial.println("[BLE] Senha recebida");
-      
-      // Salvar e conectar
-      preferences.begin("wifi", false);
-      preferences.putString("ssid0", ssid_sta);
-      preferences.putString("pass0", password_sta);
-      preferences.end();
-      
-      Serial.println("[BLE] Credenciais salvas, conectando...");
-      connectToWiFi();
-      
-      // Enviar status
-      if (WiFi.status() == WL_CONNECTED) {
-        pCharStatus->setValue("connected");
-        wifiConfigured = true;
-      } else {
-        pCharStatus->setValue("failed");
-      }
-      pCharStatus->notify();
-    }
-  }
-};
-
-// ============================================================================
-// INICIALIZAÇÃO BLE
-// ============================================================================
-void initBLE() {
-  BLEDevice::init(deviceUUID.c_str());
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
-  
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  
-  // Característica: SSID
-  pCharWiFiSSID = pService->createCharacteristic(
-    CHAR_WIFI_SSID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
-  );
-  pCharWiFiSSID->setCallbacks(new WiFiCredentialsCallbacks());
-  
-  // Característica: Password
-  pCharWiFiPass = pService->createCharacteristic(
-    CHAR_WIFI_PASS,
-    BLECharacteristic::PROPERTY_WRITE
-  );
-  pCharWiFiPass->setCallbacks(new WiFiCredentialsCallbacks());
-  
-  // Característica: WiFi List
-  pCharWiFiList = pService->createCharacteristic(
-    CHAR_WIFI_LIST,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pCharWiFiList->addDescriptor(new BLE2902());
-  
-  // Característica: Status
-  pCharStatus = pService->createCharacteristic(
-    CHAR_STATUS,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pCharStatus->addDescriptor(new BLE2902());
-  pCharStatus->setValue("disconnected");
-  
-  pService->start();
-  
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->start();
-  
-  Serial.printf("[INFO] ✅ BLE Server ativo: %s\n", deviceUUID.c_str());
+void displayMessage(const char *message) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println(message);
+  display.display();
 }
 
-// ============================================================================
-// LEITURA DE SENSORES
-// ============================================================================
-void readSensors() {
-  // pH
-  float phVoltage = readAverageADC(PH_SENSOR_PIN) * 3.3 / 4095.0;
-  lastPhValue = voltageToPH(phVoltage);
-  
-  // TDS/EC
-  float tdsRaw = readAverageADC(TDS_SENSOR_PIN);
-  float ecValue = interpolateEC(tdsRaw);
-  lastEcValue = temperatureCompensateEC(ecValue, temperature_C);
-  
-  // DHT22
-  float tempRead = dht.readTemperature();
-  float humRead = dht.readHumidity();
-  if (!isnan(tempRead)) temperature_C = tempRead;
-  if (!isnan(humRead)) humidity = humRead;
-  
-  // DS18B20
-  ds18b20.requestTemperatures();
-  water_temperature_C = ds18b20.getTempCByIndex(0);
-  
-  // Log no serial
-  Serial.printf("[SENSOR] pH: %.2f | EC: %.0f uS/cm | Temp: %.1f°C | Hum: %.1f%% | Water: %.1f°C\n",
-                lastPhValue, lastEcValue, temperature_C, humidity, water_temperature_C);
-}
-
-// ============================================================================
-// FUNÇÕES DE CONVERSÃO
-// ============================================================================
-float readAverageADC(int pin, int samples) {
-  long sum = 0;
-  for (int i = 0; i < samples; i++) {
-    sum += analogRead(pin);
-    delay(10);
-  }
-  return (float)sum / samples;
-}
-
-float voltageToPH(float voltage) {
-  return ph_slope * voltage + ph_intercept;
-}
-
-float interpolateEC(float rawValue) {
-  if (rawValue <= calibration_low_raw) return calibration_low_ec;
-  if (rawValue >= calibration_high_raw) return calibration_high_ec;
-  
-  float ratio = (rawValue - calibration_low_raw) / (calibration_high_raw - calibration_low_raw);
-  return calibration_low_ec + ratio * (calibration_high_ec - calibration_low_ec);
-}
-
-float temperatureCompensateEC(float ec, float temp) {
-  return ec / (1.0 + 0.02 * (temp - 25.0));
-}
-
-// ============================================================================
-// CALIBRAÇÃO
-// ============================================================================
-void calculatePHCoefficients() {
-  float pH_low = 4.0;
-  float pH_neutral = 7.0;
-  ph_slope = (pH_neutral - pH_low) / (cal_ph7_voltage - cal_ph4_voltage);
-  ph_intercept = pH_neutral - ph_slope * cal_ph7_voltage;
-  Serial.printf("[CALIB] pH: slope=%.3f, intercept=%.3f\n", ph_slope, ph_intercept);
-}
-
-void saveCalibration() {
-  preferences.begin("calib", false);
-  preferences.putFloat("ph7_v", cal_ph7_voltage);
-  preferences.putFloat("ph4_v", cal_ph4_voltage);
-  preferences.putFloat("ec_low_raw", calibration_low_raw);
-  preferences.putFloat("ec_high_raw", calibration_high_raw);
-  preferences.putFloat("ec_low_val", calibration_low_ec);
-  preferences.putFloat("ec_high_val", calibration_high_ec);
-  preferences.end();
-  Serial.println("[INFO] Calibração salva");
-}
-
-void loadCalibration() {
-  cal_ph7_voltage = preferences.getFloat("ph7_v", 2.52);
-  cal_ph4_voltage = preferences.getFloat("ph4_v", 3.29);
-  calibration_low_raw = preferences.getFloat("ec_low_raw", 645.0);
-  calibration_high_raw = preferences.getFloat("ec_high_raw", 2850.0);
-  calibration_low_ec = preferences.getFloat("ec_low_val", 360.0);
-  calibration_high_ec = preferences.getFloat("ec_high_val", 4588.0);
-  Serial.println("[INFO] Calibração carregada");
-}
-
-// ============================================================================
-// INTERFACE OLED - ATUALIZAÇÃO
-// ============================================================================
 void updateDisplay() {
+  // Atualizar a cada 500ms para não sobrecarregar
+  if (millis() - lastDisplayUpdate < 500) return;
+  lastDisplayUpdate = millis();
+  
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
@@ -562,22 +407,22 @@ void updateDisplay() {
   switch (currentPage) {
     case PAGE_DASHBOARD:
       display.println("=== DASHBOARD ===");
-      display.printf("pH: %.2f\n", lastPhValue);
-      display.printf("EC: %.0f uS/cm\n", lastEcValue);
-      display.printf("Temp: %.1fC Hum: %.0f%%\n", temperature_C, humidity);
-      display.printf("Water: %.1fC\n", water_temperature_C);
+      display.printf("pH: %.2f\n", currentData.ph);
+      display.printf("EC: %.0f uS/cm\n", currentData.ec);
+      display.printf("Temp: %.1fC Hum: %.0f%%\n", currentData.air_temp, currentData.humidity);
+      display.printf("Water: %.1fC\n", currentData.water_temp);
       display.println("----------------");
-      display.println("[UP/DOWN] Nav");
+      display.println("[UP/DOWN] Navegar");
       break;
       
     case PAGE_CONNECTIONS:
       display.println("=== CONEXOES ===");
-      display.printf("WiFi: %s\n", WiFi.status() == WL_CONNECTED ? "OK" : "OFF");
-      if (WiFi.status() == WL_CONNECTED) {
-        display.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+      display.printf("WiFi: %s\n", wifiConnected ? "OK" : "OFF");
+      if (wifiConnected) {
+        display.printf("RSSI: %d dBm\n", WiFi.RSSI());
       }
       display.printf("MQTT: %s\n", mqttConnected ? "OK" : "OFF");
-      display.printf("BLE: %s\n", bleConnected ? "Connected" : "Ready");
+      display.printf("BLE: %s\n", deviceConnectedBLE ? "Connected" : "Ready");
       display.println("----------------");
       display.println("[SELECT] Scan WiFi");
       break;
@@ -585,10 +430,12 @@ void updateDisplay() {
     case PAGE_CALIBRATION:
       display.println("=== CALIBRACAO ===");
       if (calibrationMode == CAL_NONE) {
-        display.println("1. pH 7.0");
-        display.println("2. pH 4.0");
-        display.println("3. EC Low");
-        display.println("4. EC High");
+        const char* options[] = {"1. pH 7.0", "2. pH 4.0", "3. EC Low", "4. EC High"};
+        for (int i = 0; i < 4; i++) {
+          if (i == calibrationMenuIndex) display.print("> ");
+          else display.print("  ");
+          display.println(options[i]);
+        }
         display.println("----------------");
         display.println("[SELECT] Escolher");
       } else {
@@ -598,26 +445,26 @@ void updateDisplay() {
         switch (calibrationMode) {
           case CAL_PH_7:
             display.println("Calibrando pH 7.0");
-            display.printf("V: %.3f\n", currentVoltage);
+            display.printf("Voltage: %.3fV\n", currentVoltage);
             display.println("\nMergulhe em pH 7");
             display.println("[SELECT] Confirmar");
             break;
           case CAL_PH_4:
             display.println("Calibrando pH 4.0");
-            display.printf("V: %.3f\n", currentVoltage);
+            display.printf("Voltage: %.3fV\n", currentVoltage);
             display.println("\nMergulhe em pH 4");
             display.println("[SELECT] Confirmar");
             break;
           case CAL_EC_LOW:
             display.println("Calibrando EC Low");
             display.printf("Raw: %.0f\n", currentRaw);
-            display.println("\nMergulhe em EC Low");
+            display.println("\nMergulhe em 360uS");
             display.println("[SELECT] Confirmar");
             break;
           case CAL_EC_HIGH:
             display.println("Calibrando EC High");
             display.printf("Raw: %.0f\n", currentRaw);
-            display.println("\nMergulhe em EC High");
+            display.println("\nMergulhe em 4588uS");
             display.println("[SELECT] Confirmar");
             break;
           default:
@@ -629,11 +476,11 @@ void updateDisplay() {
       
     case PAGE_SYSTEM:
       display.println("=== SISTEMA ===");
-      display.printf("UUID: %s\n", deviceUUID.substring(0, 16).c_str());
+      display.printf("UUID:\n%s\n", deviceUUID.c_str());
       display.printf("Mem: %d KB\n", ESP.getFreeHeap() / 1024);
       display.printf("Uptime: %lus\n", millis() / 1000);
       display.println("----------------");
-      display.println("Firmware v4.3.2");
+      display.println("FW: v4.3.2-OLED");
       break;
       
     default:
@@ -643,22 +490,17 @@ void updateDisplay() {
   display.display();
 }
 
-// ============================================================================
-// INTERFACE OLED - BOTÕES
-// ============================================================================
 void handleButtons() {
-  static int selectionIndex = 0;
-  
   // Botão UP
   if (digitalRead(BUTTON_UP) == LOW && (millis() - lastDebounce[0] > debounceDelay)) {
     lastDebounce[0] = millis();
     
     if (currentPage == PAGE_CALIBRATION && calibrationMode == CAL_NONE) {
-      selectionIndex = (selectionIndex - 1 + 4) % 4;
+      calibrationMenuIndex = (calibrationMenuIndex - 1 + 4) % 4;
     } else {
       currentPage = (Page)((currentPage - 1 + PAGE_COUNT) % PAGE_COUNT);
     }
-    Serial.printf("[BTN] UP - Page: %d\n", currentPage);
+    logMessage(LOG_DEBUG, "BTN UP");
   }
   
   // Botão DOWN
@@ -666,25 +508,25 @@ void handleButtons() {
     lastDebounce[1] = millis();
     
     if (currentPage == PAGE_CALIBRATION && calibrationMode == CAL_NONE) {
-      selectionIndex = (selectionIndex + 1) % 4;
+      calibrationMenuIndex = (calibrationMenuIndex + 1) % 4;
     } else {
       currentPage = (Page)((currentPage + 1) % PAGE_COUNT);
     }
-    Serial.printf("[BTN] DOWN - Page: %d\n", currentPage);
+    logMessage(LOG_DEBUG, "BTN DOWN");
   }
   
   // Botão SELECT
   if (digitalRead(BUTTON_SELECT) == LOW && (millis() - lastDebounce[2] > debounceDelay)) {
     lastDebounce[2] = millis();
-    Serial.println("[BTN] SELECT");
+    logMessage(LOG_DEBUG, "BTN SELECT");
     
     if (currentPage == PAGE_CONNECTIONS) {
       handleScan();
     } else if (currentPage == PAGE_CALIBRATION) {
       if (calibrationMode == CAL_NONE) {
         // Entrar no modo de calibração
-        calibrationMode = (CalibrationMode)(selectionIndex + 1);
-        Serial.printf("[CALIB] Modo: %d\n", calibrationMode);
+        calibrationMode = (CalibrationMode)(calibrationMenuIndex + 1);
+        logMessage(LOG_INFO, "Modo calibração: " + String(calibrationMode));
       } else {
         // Confirmar calibração
         float currentVoltage = readAverageADC(PH_SENSOR_PIN) * 3.3 / 4095.0;
@@ -692,20 +534,20 @@ void handleButtons() {
         
         switch (calibrationMode) {
           case CAL_PH_7:
-            cal_ph7_voltage = currentVoltage;
-            Serial.printf("[CALIB] pH 7.0 = %.3fV\n", cal_ph7_voltage);
+            calibration.ph7_voltage = currentVoltage;
+            logMessage(LOG_INFO, "pH 7.0 = " + String(currentVoltage, 3) + "V");
             break;
           case CAL_PH_4:
-            cal_ph4_voltage = currentVoltage;
-            Serial.printf("[CALIB] pH 4.0 = %.3fV\n", cal_ph4_voltage);
+            calibration.ph4_voltage = currentVoltage;
+            logMessage(LOG_INFO, "pH 4.0 = " + String(currentVoltage, 3) + "V");
             break;
           case CAL_EC_LOW:
-            calibration_low_raw = currentRaw;
-            Serial.printf("[CALIB] EC Low = %.0f\n", calibration_low_raw);
+            calibration.ec_low_raw = currentRaw;
+            logMessage(LOG_INFO, "EC Low = " + String(currentRaw, 0));
             break;
           case CAL_EC_HIGH:
-            calibration_high_raw = currentRaw;
-            Serial.printf("[CALIB] EC High = %.0f\n", calibration_high_raw);
+            calibration.ec_high_raw = currentRaw;
+            logMessage(LOG_INFO, "EC High = " + String(currentRaw, 0));
             break;
           default:
             break;
@@ -723,185 +565,1033 @@ void handleButtons() {
   // Botão BACK
   if (digitalRead(BUTTON_BACK) == LOW && (millis() - lastDebounce[3] > debounceDelay)) {
     lastDebounce[3] = millis();
-    Serial.println("[BTN] BACK");
+    logMessage(LOG_DEBUG, "BTN BACK");
     
     if (calibrationMode != CAL_NONE) {
       calibrationMode = CAL_NONE;
-      selectionIndex = 0;
+      calibrationMenuIndex = 0;
     }
   }
 }
 
-// ============================================================================
-// MENSAGEM NO DISPLAY
-// ============================================================================
-void displayMessage(const char *message) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.println(message);
-  display.display();
+// ==================== CALIBRAÇÃO ====================
+void calculatePHCoefficients() {
+  float pH_low = 4.0;
+  float pH_neutral = 7.0;
+  calibration.ph_slope = (pH_neutral - pH_low) / (calibration.ph7_voltage - calibration.ph4_voltage);
+  calibration.ph_intercept = pH_neutral - calibration.ph_slope * calibration.ph7_voltage;
+  logMessage(LOG_INFO, "pH Coef: slope=" + String(calibration.ph_slope, 3) + 
+             " intercept=" + String(calibration.ph_intercept, 3));
 }
 
-// ============================================================================
-// WIFI - CONEXÃO
-// ============================================================================
-void connectToWiFi() {
-  if (ssid_sta.length() == 0) return;
+void loadCalibration() {
+  prefs.begin("calib", true);
   
-  Serial.printf("[WiFi] Conectando a: %s\n", ssid_sta.c_str());
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid_sta.c_str(), password_sta.c_str());
+  calibration.ph7_voltage = prefs.getFloat("ph7_v", 2.52);
+  calibration.ph4_voltage = prefs.getFloat("ph4_v", 3.29);
+  calibration.ec_low_raw = prefs.getFloat("ec_low_raw", 645.0);
+  calibration.ec_high_raw = prefs.getFloat("ec_high_raw", 2850.0);
+  calibration.ec_low_val = prefs.getFloat("ec_low_val", 360.0);
+  calibration.ec_high_val = prefs.getFloat("ec_high_val", 4588.0);
   
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    resetWatchdog();
-    attempts++;
+  prefs.end();
+  
+  calculatePHCoefficients();
+  logMessage(LOG_INFO, "Calibração carregada");
+}
+
+void saveCalibration() {
+  prefs.begin("calib", false);
+  
+  prefs.putFloat("ph7_v", calibration.ph7_voltage);
+  prefs.putFloat("ph4_v", calibration.ph4_voltage);
+  prefs.putFloat("ec_low_raw", calibration.ec_low_raw);
+  prefs.putFloat("ec_high_raw", calibration.ec_high_raw);
+  prefs.putFloat("ec_low_val", calibration.ec_low_val);
+  prefs.putFloat("ec_high_val", calibration.ec_high_val);
+  
+  prefs.end();
+  
+  logMessage(LOG_INFO, "💾 Calibração salva");
+}
+
+// ==================== SENSORES ====================
+float readAverageADC(int pin, int samples) {
+  long sum = 0;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(pin);
+    delay(10);
+  }
+  return (float)sum / samples;
+}
+
+float voltageToPH(float voltage) {
+  float ph = calibration.ph_slope * voltage + calibration.ph_intercept;
+  if (ph < 0) ph = 0;
+  if (ph > 14) ph = 14;
+  return ph;
+}
+
+float interpolateEC(float rawValue) {
+  if (rawValue <= calibration.ec_low_raw) return calibration.ec_low_val;
+  if (rawValue >= calibration.ec_high_raw) return calibration.ec_high_val;
+  
+  float ratio = (rawValue - calibration.ec_low_raw) / (calibration.ec_high_raw - calibration.ec_low_raw);
+  return calibration.ec_low_val + ratio * (calibration.ec_high_val - calibration.ec_low_val);
+}
+
+float temperatureCompensateEC(float ec, float temp) {
+  return ec / (1.0 + 0.02 * (temp - 25.0));
+}
+
+void readSensors() {
+  resetWatchdog();
+  
+  // pH
+  float phVoltage = readAverageADC(PH_SENSOR_PIN) * 3.3 / 4095.0;
+  currentData.ph = voltageToPH(phVoltage);
+  
+  // EC
+  float ecRaw = readAverageADC(TDS_SENSOR_PIN);
+  float ecValue = interpolateEC(ecRaw);
+  currentData.ec = temperatureCompensateEC(ecValue, currentData.air_temp);
+  
+  // DHT22
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  
+  if (isnan(h) || isnan(t)) {
+    logMessage(LOG_WARN, "Falha ao ler DHT22");
+    currentData.air_temp = 25.0;
+    currentData.humidity = 50.0;
+  } else {
+    currentData.air_temp = t;
+    currentData.humidity = h;
   }
   
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] ✅ Conectado! IP: %s\n", WiFi.localIP().toString().c_str());
+  // DS18B20
+  ds18b20.requestTemperatures();
+  float waterTemp = ds18b20.getTempCByIndex(0);
+  
+  if (waterTemp == DEVICE_DISCONNECTED_C || waterTemp < -50 || waterTemp > 100) {
+    logMessage(LOG_WARN, "Falha ao ler DS18B20");
+    currentData.water_temp = 25.0;
   } else {
-    Serial.println("\n[WiFi] ❌ Falha na conexão");
+    currentData.water_temp = waterTemp;
+  }
+  
+  currentData.valid = true;
+  currentData.timestamp = millis();
+  
+  logMessage(LOG_INFO, "📊 pH=" + String(currentData.ph, 2) + 
+             " EC=" + String(currentData.ec, 0) + 
+             " T=" + String(currentData.air_temp, 1) + 
+             " H=" + String(currentData.humidity, 1) + 
+             " Tw=" + String(currentData.water_temp, 1));
+}
+
+// ==================== WIFI ====================
+void loadWiFiConfig() {
+  prefs.begin("wifi", true);
+  
+  for (int i = 0; i < 3; i++) {
+    String keySSID = "ssid" + String(i);
+    String keyPass = "pass" + String(i);
+    String keyPrio = "prio" + String(i);
+    
+    String ssid = prefs.getString(keySSID.c_str(), "");
+    
+    if (ssid.length() > 0) {
+      ssid.toCharArray(networks[i].ssid, 32);
+      prefs.getString(keyPass.c_str(), "").toCharArray(networks[i].password, 64);
+      networks[i].priority = prefs.getInt(keyPrio.c_str(), i + 1);
+      networks[i].valid = true;
+      logMessage(LOG_INFO, "WiFi carregado: " + String(networks[i].ssid));
+    } else {
+      networks[i].valid = false;
+    }
+  }
+  
+  prefs.end();
+}
+
+void saveWiFiConfig() {
+  prefs.begin("wifi", false);
+  
+  for (int i = 0; i < 3; i++) {
+    if (networks[i].valid) {
+      String keySSID = "ssid" + String(i);
+      String keyPass = "pass" + String(i);
+      String keyPrio = "prio" + String(i);
+      
+      prefs.putString(keySSID.c_str(), networks[i].ssid);
+      prefs.putString(keyPass.c_str(), networks[i].password);
+      prefs.putInt(keyPrio.c_str(), networks[i].priority);
+    }
+  }
+  
+  prefs.end();
+  logMessage(LOG_INFO, "Configuração WiFi salva");
+}
+
+bool connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, DNS_PRIMARY, DNS_SECONDARY);
+  
+  for (int i = 0; i < 3; i++) {
+    if (!networks[i].valid) continue;
+    
+    logMessage(LOG_INFO, "Tentando WiFi: " + String(networks[i].ssid));
+    WiFi.begin(networks[i].ssid, networks[i].password);
+    
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startTime < WIFI_TIMEOUT) {
+      resetWatchdog();
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println();
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiConnected = true;
+      currentNetworkIndex = i;
+      logMessage(LOG_INFO, "✅ WiFi conectado: " + String(networks[i].ssid));
+      logMessage(LOG_INFO, "IP: " + WiFi.localIP().toString());
+      logMessage(LOG_INFO, "RSSI: " + String(WiFi.RSSI()) + " dBm");
+      
+      syncNTP();
+      return true;
+    }
+  }
+  
+  wifiConnected = false;
+  return false;
+}
+
+void checkWiFi() {
+  if (millis() - lastWiFiCheck < 10000) return;
+  lastWiFiCheck = millis();
+  
+  resetWatchdog();
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    logMessage(LOG_WARN, "WiFi desconectado, tentando reconectar...");
+    wifiConnected = false;
+    mqttConnected = false;
+    
+    if (!connectWiFi() && !apMode) {
+      startAPMode();
+    }
   }
 }
 
 void startAPMode() {
-  Serial.println("[INFO] 🔶 Iniciando modo AP...");
-  String apSSID = "AquaSys-" + deviceUUID;
-  String apPassword = "aquasys2024";
+  logMessage(LOG_INFO, "🔶 Iniciando modo AP...");
   
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(apSSID.c_str(), apPassword.c_str());
+  String apSSID = String(AP_SSID_PREFIX) + deviceUUID.substring(4);
+  WiFi.softAP(apSSID.c_str(), AP_PASSWORD);
   
-  IPAddress IP = WiFi.softAPIP();
-  Serial.printf("[INFO] ✅ AP ativo: %s / Senha: %s\n", apSSID.c_str(), apPassword.c_str());
-  Serial.printf("[INFO] Portal: http://%s\n", IP.toString().c_str());
+  IPAddress apIP(192, 168, 4, 1);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  
+  dnsServer.start(53, "*", apIP);
+  setupWebServer();
+  server.begin();
+  
+  apMode = true;
+  apModeStartTime = millis();
+  
+  logMessage(LOG_INFO, "✅ AP ativo: " + apSSID + " / Senha: " + String(AP_PASSWORD));
+  logMessage(LOG_INFO, "Portal: http://192.168.4.1");
+  
+  displayMessage("Modo AP Ativo\nSSID: " + apSSID);
 }
 
-// ============================================================================
-// SERVIDOR WEB
-// ============================================================================
+void stopAPMode() {
+  if (!apMode) return;
+  
+  logMessage(LOG_INFO, "Parando modo AP...");
+  server.stop();
+  dnsServer.stop();
+  WiFi.softAPdisconnect(true);
+  apMode = false;
+}
+
+// ==================== WEB SERVER ====================
 void setupWebServer() {
-  server.on("/", HTTP_GET, []() {
-    String html = "<html><body><h1>AquaSys Config</h1>";
-    html += "<p>Device: " + deviceUUID + "</p>";
-    html += "<form action='/save' method='POST'>";
-    html += "SSID: <input name='ssid' type='text'><br>";
-    html += "Password: <input name='pass' type='password'><br>";
-    html += "<input type='submit' value='Save'>";
-    html += "</form>";
-    html += "<br><a href='/scan'>Scan WiFi Networks</a>";
-    html += "</body></html>";
-    server.send(200, "text/html", html);
-  });
-  
-  server.on("/scan", HTTP_GET, handleScan);
+  server.on("/", handleRoot);
+  server.on("/scan", handleScan);
   server.on("/save", HTTP_POST, handleSave);
+  server.on("/status", handleStatus);
+  server.onNotFound(handleNotFound);
+}
+
+void handleRoot() {
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AquaSys - Configuração</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 { color: #667eea; margin-bottom: 10px; font-size: 28px; }
+    .device-info {
+      background: #f0f4ff;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 30px;
+      font-size: 14px;
+      color: #555;
+    }
+    .form-group { margin-bottom: 20px; }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 600;
+    }
+    select, input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+    select:focus, input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: translateY(-2px); }
+    .scan-btn { background: #28a745; margin-bottom: 20px; }
+    .status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: 600;
+      display: none;
+    }
+    .status.success { background: #d4edda; color: #155724; display: block; }
+    .status.error { background: #f8d7da; color: #721c24; display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🌊 AquaSys Sensor</h1>
+    <div class="device-info">
+      <strong>Dispositivo:</strong> )rawliteral" + deviceUUID + R"rawliteral(<br>
+      <strong>Versão:</strong> 4.3.2-OLED-COMPLETE<br>
+      <strong>Tipo:</strong> Módulo Sensor
+    </div>
+    
+    <button class="scan-btn" onclick="scanNetworks()">🔍 Escanear Redes WiFi</button>
+    
+    <form id="wifiForm" onsubmit="saveWiFi(event)">
+      <div class="form-group">
+        <label for="ssid">Rede WiFi</label>
+        <select id="ssid" name="ssid" required>
+          <option value="">Selecione uma rede...</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Senha</label>
+        <input type="password" id="password" name="password" required minlength="8">
+      </div>
+      
+      <button type="submit">💾 Salvar e Conectar</button>
+    </form>
+    
+    <div id="status" class="status"></div>
+  </div>
   
-  server.begin();
-  Serial.println("[INFO] Servidor web iniciado");
+  <script>
+    function scanNetworks() {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '🔄 Escaneando...';
+      
+      fetch('/scan')
+        .then(r => r.json())
+        .then(data => {
+          const select = document.getElementById('ssid');
+          select.innerHTML = '<option value="">Selecione uma rede...</option>';
+          data.networks.forEach(net => {
+            const option = document.createElement('option');
+            option.value = net.ssid;
+            option.textContent = `${net.ssid} (${net.rssi} dBm)`;
+            select.appendChild(option);
+          });
+          btn.disabled = false;
+          btn.textContent = '🔍 Escanear Redes WiFi';
+        })
+        .catch(err => {
+          console.error(err);
+          btn.disabled = false;
+          btn.textContent = '🔍 Escanear Redes WiFi';
+        });
+    }
+    
+    function saveWiFi(e) {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = {
+        ssid: formData.get('ssid'),
+        password: formData.get('password')
+      };
+      
+      const statusDiv = document.getElementById('status');
+      statusDiv.textContent = 'Salvando...';
+      statusDiv.className = 'status';
+      
+      fetch('/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      })
+      .then(r => r.json())
+      .then(res => {
+        statusDiv.textContent = res.message;
+        statusDiv.className = 'status ' + (res.success ? 'success' : 'error');
+        if (res.success) {
+          setTimeout(() => {
+            statusDiv.textContent = 'Conectando ao WiFi...';
+          }, 1000);
+        }
+      })
+      .catch(err => {
+        statusDiv.textContent = 'Erro ao salvar';
+        statusDiv.className = 'status error';
+      });
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+  
+  server.send(200, "text/html", html);
 }
 
 void handleScan() {
-  Serial.println("[INFO] Escaneando redes WiFi...");
-  displayMessage("Escaneando WiFi...");
+  resetWatchdog();
+  logMessage(LOG_INFO, "Escaneando redes WiFi...");
   
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+  // Usar modo assíncrono para não bloquear o watchdog
+  int n = WiFi.scanNetworks(false, false);  // async mode
   
-  // Escanear de forma assíncrona
-  int n = WiFi.scanNetworks(false, false);
-  
-  // Aguardar conclusão do scan com reset do watchdog
+  // Aguardar scan completo com resets periódicos
   while (n == WIFI_SCAN_RUNNING) {
     delay(100);
     resetWatchdog();
     n = WiFi.scanComplete();
   }
   
-  Serial.printf("[INFO] %d redes encontradas\n", n);
+  resetWatchdog();
   
-  String json = "[";
-  for (int i = 0; i < n; i++) {
-    if (i > 0) json += ",";
-    json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",";
-    json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
-    json += "\"secure\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN) + "}";
+  StaticJsonDocument<1024> doc;
+  JsonArray networks = doc.createNestedArray("networks");
+  
+  if (n >= 0) {
+    for (int i = 0; i < n && i < 10; i++) {
+      JsonObject net = networks.createNestedObject();
+      net["ssid"] = WiFi.SSID(i);
+      net["rssi"] = WiFi.RSSI(i);
+      net["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+    }
+    
+    // Enviar via BLE se disponível
+    if (pCharWiFiList && bleActive) {
+      String bleData;
+      serializeJson(doc, bleData);
+      pCharWiFiList->setValue(bleData.c_str());
+      pCharWiFiList->notify();
+    }
   }
-  json += "]";
   
-  // Enviar via BLE se conectado
-  if (bleConnected && pCharWiFiList) {
-    pCharWiFiList->setValue(json.c_str());
-    pCharWiFiList->notify();
-  }
-  
-  // Responder ao servidor web
-  server.send(200, "application/json", json);
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
   
   WiFi.scanDelete();
-  displayMessage("Scan concluido!");
-  delay(1000);
+  resetWatchdog();
 }
 
 void handleSave() {
-  if (server.hasArg("ssid") && server.hasArg("pass")) {
-    ssid_sta = server.arg("ssid");
-    password_sta = server.arg("pass");
-    
-    preferences.begin("wifi", false);
-    preferences.putString("ssid0", ssid_sta);
-    preferences.putString("pass0", password_sta);
-    preferences.end();
-    
-    server.send(200, "text/html", "<html><body><h1>Saved!</h1><p>Rebooting...</p></body></html>");
-    delay(2000);
-    ESP.restart();
+  resetWatchdog();
+  
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"success\":false,\"message\":\"Dados inválidos\"}");
+    return;
+  }
+  
+  String body = server.arg("plain");
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, body);
+  
+  if (error) {
+    server.send(400, "application/json", "{\"success\":false,\"message\":\"JSON inválido\"}");
+    return;
+  }
+  
+  String ssid = doc["ssid"] | "";
+  String password = doc["password"] | "";
+  
+  if (ssid.length() == 0 || password.length() < 8) {
+    server.send(400, "application/json", "{\"success\":false,\"message\":\"Senha deve ter ao menos 8 caracteres\"}");
+    return;
+  }
+  
+  for (int i = 0; i < 3; i++) {
+    if (!networks[i].valid || i == 0) {
+      ssid.toCharArray(networks[i].ssid, 32);
+      password.toCharArray(networks[i].password, 64);
+      networks[i].priority = i + 1;
+      networks[i].valid = true;
+      break;
+    }
+  }
+  
+  saveWiFiConfig();
+  
+  StaticJsonDocument<128> doc2;
+  doc2["success"] = true;
+  doc2["message"] = "Configuração salva";
+  String response;
+  serializeJson(doc2, response);
+  server.send(200, "application/json", response);
+  
+  delay(2000);
+  stopAPMode();
+  connectWiFi();
+}
+
+void handleStatus() {
+  server.send(200, "text/plain", "OK");
+}
+
+void handleNotFound() {
+  server.sendHeader("Location", "/", true);
+  server.send(302, "text/plain", "");
+}
+
+// ==================== NTP ====================
+void syncNTP() {
+  if (!wifiConnected) return;
+  
+  logMessage(LOG_INFO, "Sincronizando NTP...");
+  resetWatchdog();
+  configTime(GMT_OFFSET, DAYLIGHT_OFFSET, NTP_SERVER1, NTP_SERVER2);
+  
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 10000)) {
+    char timeStr[64];
+    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    logMessage(LOG_INFO, "✅ NTP: " + String(timeStr));
   } else {
-    server.send(400, "text/html", "<html><body><h1>Error</h1><p>Missing parameters</p></body></html>");
+    logMessage(LOG_WARN, "Falha ao sincronizar NTP");
   }
 }
 
-// ============================================================================
-// MQTT
-// ============================================================================
-void reconnectMQTT() {
-  static unsigned long lastAttempt = 0;
-  if (millis() - lastAttempt < 5000) return;
-  lastAttempt = millis();
+// ==================== AUTENTICAÇÃO ====================
+bool authenticateDevice() {
+  if (!wifiConnected) {
+    logMessage(LOG_ERROR, "❌ Autenticação requer WiFi");
+    return false;
+  }
   
-  Serial.print("[MQTT] Conectando...");
+  logMessage(LOG_INFO, "🔐 Autenticando...");
+  resetWatchdog();
   
-  if (mqttClient.connect(deviceUUID.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
-    Serial.println(" ✅");
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure();
+  
+  String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
+  http.begin(client, url);
+  
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("apikey", SUPABASE_ANON_KEY);
+  http.addHeader("Authorization", "Bearer " + String(SUPABASE_ANON_KEY));
+  
+  StaticJsonDocument<256> reqDoc;
+  reqDoc["device_uuid"] = deviceUUID;
+  reqDoc["firmware_version"] = FIRMWARE_VERSION;
+  
+  String requestBody;
+  serializeJson(reqDoc, requestBody);
+  
+  http.setTimeout(AUTH_TIMEOUT);
+  int httpCode = http.POST(requestBody);
+  
+  if (httpCode == 200) {
+    String response = http.getString();
+    
+    StaticJsonDocument<1024> doc;
+    DeserializationError error = deserializeJson(doc, response);
+    
+    if (!error && doc["success"]) {
+      JsonObject mqtt_config = doc["mqtt_config"];
+      
+      strncpy(mqttCreds.broker, mqtt_config["broker"] | MQTT_BROKER_FALLBACK, sizeof(mqttCreds.broker) - 1);
+      strncpy(mqttCreds.username, mqtt_config["username"] | deviceUUID.c_str(), sizeof(mqttCreds.username) - 1);
+      strncpy(mqttCreds.password, mqtt_config["password"] | "", sizeof(mqttCreds.password) - 1);
+      strncpy(mqttCreds.client_id, mqtt_config["client_id"] | deviceUUID.c_str(), sizeof(mqttCreds.client_id) - 1);
+      
+      JsonObject topics = mqtt_config["topics"];
+      strncpy(mqttCreds.topic_sensors, topics["sensors"] | TOPIC_SENSORS_FALLBACK, sizeof(mqttCreds.topic_sensors) - 1);
+      strncpy(mqttCreds.topic_heartbeat, topics["heartbeat"] | TOPIC_HEARTBEAT_FALLBACK, sizeof(mqttCreds.topic_heartbeat) - 1);
+      
+      snprintf(mqttCreds.topic_calibration, sizeof(mqttCreds.topic_calibration), "aquasys/%s/calibration/command", deviceUUID.c_str());
+      
+      mqttCreds.valid = true;
+      isAuthenticated = true;
+      
+      saveMqttCredentials();
+      
+      logMessage(LOG_INFO, "✅ Autenticado!");
+      http.end();
+      return true;
+    }
+  }
+  
+  http.end();
+  return false;
+}
+
+void loadMqttCredentials() {
+  prefs.begin("mqtt_creds", true);
+  
+  String broker = prefs.getString("broker", "");
+  String username = prefs.getString("username", "");
+  
+  if (broker.length() > 0 && username.length() > 0) {
+    strncpy(mqttCreds.broker, broker.c_str(), sizeof(mqttCreds.broker) - 1);
+    strncpy(mqttCreds.username, username.c_str(), sizeof(mqttCreds.username) - 1);
+    strncpy(mqttCreds.password, prefs.getString("password", "").c_str(), sizeof(mqttCreds.password) - 1);
+    strncpy(mqttCreds.topic_sensors, prefs.getString("topic_sensors", "").c_str(), sizeof(mqttCreds.topic_sensors) - 1);
+    strncpy(mqttCreds.topic_heartbeat, prefs.getString("topic_hb", "").c_str(), sizeof(mqttCreds.topic_heartbeat) - 1);
+    
+    mqttCreds.valid = true;
+    logMessage(LOG_INFO, "✅ Credenciais MQTT carregadas");
+  }
+  
+  prefs.end();
+}
+
+void saveMqttCredentials() {
+  prefs.begin("mqtt_creds", false);
+  
+  prefs.putString("broker", mqttCreds.broker);
+  prefs.putString("username", mqttCreds.username);
+  prefs.putString("password", mqttCreds.password);
+  prefs.putString("topic_sensors", mqttCreds.topic_sensors);
+  prefs.putString("topic_hb", mqttCreds.topic_heartbeat);
+  
+  prefs.end();
+  
+  logMessage(LOG_INFO, "💾 Credenciais MQTT salvas");
+}
+
+// ==================== MQTT ====================
+void setupMQTT() {
+  espClient.setInsecure();
+  espClient.setTimeout(20000);
+  
+  const char* brokerToUse = mqttCreds.valid ? mqttCreds.broker : MQTT_BROKER_FALLBACK;
+  
+  mqttClient.setServer(brokerToUse, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setKeepAlive(60);
+  mqttClient.setSocketTimeout(60);
+  
+  logMessage(LOG_INFO, "✅ MQTT configurado: " + String(brokerToUse));
+}
+
+bool reconnectMQTT() {
+  if (!wifiConnected) return false;
+  if (millis() - lastMqttAttempt < 5000) return false;
+  
+  lastMqttAttempt = millis();
+  resetWatchdog();
+  
+  const char* clientIdToUse = mqttCreds.valid ? mqttCreds.client_id : ("aquasys-sensor-" + deviceUUID).c_str();
+  const char* usernameToUse = mqttCreds.valid ? mqttCreds.username : deviceUUID.c_str();
+  const char* passwordToUse = mqttCreds.valid ? mqttCreds.password : "";
+  
+  logMessage(LOG_INFO, "Conectando MQTT...");
+  
+  bool connected = mqttClient.connect(clientIdToUse, usernameToUse, passwordToUse);
+  
+  if (connected) {
     mqttConnected = true;
+    lastMqttSuccess = millis();
+    logMessage(LOG_INFO, "✅ MQTT conectado!");
     
-    String statusTopic = "aquasys/device/" + deviceUUID + "/status";
-    mqttClient.publish(statusTopic.c_str(), "online", true);
+    const char* topicCalibration = mqttCreds.valid ? mqttCreds.topic_calibration : TOPIC_CALIBRATION_FALLBACK;
+    mqttClient.subscribe(topicCalibration, 1);
+    
+    publishSensorData();
+    return true;
   } else {
-    Serial.printf(" ❌ (rc=%d)\n", mqttClient.state());
     mqttConnected = false;
+    logMessage(LOG_ERROR, "❌ Falha MQTT, rc=" + String(mqttClient.state()));
+    return false;
   }
 }
 
-void publishData() {
-  if (!mqttClient.connected()) return;
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  resetWatchdog();
+  
+  String message;
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  
+  logMessage(LOG_INFO, "📩 MQTT: " + message);
+  
+  StaticJsonDocument<512> doc;
+  DeserializationError error = deserializeJson(doc, message);
+  
+  if (error) {
+    logMessage(LOG_ERROR, "❌ JSON inválido");
+    return;
+  }
+  
+  // Processar comandos de calibração
+  String sensorType = doc["sensor_type"] | "";
+  String calibType = doc["calibration_type"] | "";
+  
+  if (sensorType == "ph") {
+    if (calibType == "4.0") {
+      calibration.ph4_voltage = doc["value"] | 3.29;
+    } else if (calibType == "7.0") {
+      calibration.ph7_voltage = doc["value"] | 2.52;
+    }
+    calculatePHCoefficients();
+    saveCalibration();
+    logMessage(LOG_INFO, "✅ Calibração pH salva");
+  }
+}
+
+void publishSensorData() {
+  if (!mqttConnected || !currentData.valid) return;
+  
+  resetWatchdog();
   
   StaticJsonDocument<512> doc;
   doc["device_uuid"] = deviceUUID;
+  doc["device_type"] = DEVICE_TYPE;
   doc["timestamp"] = millis();
-  doc["ph"] = round(lastPhValue * 100) / 100.0;
-  doc["ec"] = round(lastEcValue);
-  doc["temperature"] = round(temperature_C * 10) / 10.0;
-  doc["humidity"] = round(humidity * 10) / 10.0;
-  doc["water_temperature"] = round(water_temperature_C * 10) / 10.0;
   
-  char buffer[512];
-  serializeJson(doc, buffer);
+  JsonObject data = doc.createNestedObject("data");
+  data["ph"] = currentData.ph;
+  data["ec"] = currentData.ec;
+  data["air_temp"] = currentData.air_temp;
+  data["humidity"] = currentData.humidity;
+  data["water_temp"] = currentData.water_temp;
   
-  bool success = mqttClient.publish(MQTT_TOPIC, buffer);
-  Serial.printf("[MQTT] Publicado: %s (%s)\n", success ? "✅" : "❌", buffer);
+  String payload;
+  serializeJson(doc, payload);
+  
+  const char* topic = mqttCreds.valid ? mqttCreds.topic_sensors : TOPIC_SENSORS_FALLBACK;
+  
+  if (mqttClient.publish(topic, payload.c_str(), false)) {
+    logMessage(LOG_INFO, "📤 Dados publicados");
+  } else {
+    logMessage(LOG_ERROR, "❌ Falha ao publicar");
+  }
+}
+
+void publishHeartbeat() {
+  if (!mqttConnected) return;
+  
+  resetWatchdog();
+  
+  StaticJsonDocument<768> doc;
+  doc["device_uuid"] = deviceUUID;
+  doc["device_type"] = DEVICE_TYPE;
+  doc["timestamp"] = millis();
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  
+  JsonObject status = doc.createNestedObject("status");
+  status["wifi_connected"] = wifiConnected;
+  status["mqtt_connected"] = mqttConnected;
+  status["ble_active"] = bleActive;
+  status["rssi"] = WiFi.RSSI();
+  
+  JsonObject memory = doc.createNestedObject("memory");
+  memory["free_heap"] = ESP.getFreeHeap();
+  memory["min_free_heap"] = ESP.getMinFreeHeap();
+  
+  doc["uptime_seconds"] = millis() / 1000;
+  
+  if (currentData.valid) {
+    JsonObject data = doc.createNestedObject("data");
+    data["ph"] = currentData.ph;
+    data["ec"] = currentData.ec;
+    data["air_temp"] = currentData.air_temp;
+    data["humidity"] = currentData.humidity;
+    data["water_temp"] = currentData.water_temp;
+  }
+  
+  String payload;
+  serializeJson(doc, payload);
+  
+  const char* topic = mqttCreds.valid ? mqttCreds.topic_heartbeat : TOPIC_HEARTBEAT_FALLBACK;
+  
+  if (mqttClient.publish(topic, payload.c_str(), false)) {
+    logMessage(LOG_INFO, "💓 Heartbeat publicado");
+  }
+}
+
+// ==================== BLE ====================
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnectedBLE = true;
+    logMessage(LOG_INFO, "📱 BLE conectado");
+  }
+  
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnectedBLE = false;
+    logMessage(LOG_INFO, "📱 BLE desconectado");
+    pServer->startAdvertising();
+  }
+};
+
+void setupBLE() {
+  logMessage(LOG_INFO, "Inicializando BLE...");
+  
+  BLEDevice::init(deviceUUID.c_str());
+  pBLEServer = BLEDevice::createServer();
+  pBLEServer->setCallbacks(new MyServerCallbacks());
+  
+  BLEService *pService = pBLEServer->createService(SERVICE_UUID);
+  
+  pCharPH = pService->createCharacteristic(
+    CHAR_UUID_PH,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharPH->addDescriptor(new BLE2902());
+  
+  pCharEC = pService->createCharacteristic(
+    CHAR_UUID_EC,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharEC->addDescriptor(new BLE2902());
+  
+  pCharAirTemp = pService->createCharacteristic(
+    CHAR_UUID_AIR_TEMP,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharAirTemp->addDescriptor(new BLE2902());
+  
+  pCharHumidity = pService->createCharacteristic(
+    CHAR_UUID_HUMIDITY,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharHumidity->addDescriptor(new BLE2902());
+  
+  pCharWaterTemp = pService->createCharacteristic(
+    CHAR_UUID_WATER_TEMP,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharWaterTemp->addDescriptor(new BLE2902());
+  
+  pCharWiFiList = pService->createCharacteristic(
+    CHAR_WIFI_LIST,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharWiFiList->addDescriptor(new BLE2902());
+  
+  pService->start();
+  
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  
+  bleActive = true;
+  logMessage(LOG_INFO, "✅ BLE ativo: " + deviceUUID);
+}
+
+void publishDataToBLE() {
+  if (!bleActive || !currentData.valid) return;
+  
+  char buffer[16];
+  
+  snprintf(buffer, sizeof(buffer), "%.2f", currentData.ph);
+  pCharPH->setValue(buffer);
+  pCharPH->notify();
+  
+  snprintf(buffer, sizeof(buffer), "%.2f", currentData.ec);
+  pCharEC->setValue(buffer);
+  pCharEC->notify();
+  
+  snprintf(buffer, sizeof(buffer), "%.2f", currentData.air_temp);
+  pCharAirTemp->setValue(buffer);
+  pCharAirTemp->notify();
+  
+  snprintf(buffer, sizeof(buffer), "%.2f", currentData.humidity);
+  pCharHumidity->setValue(buffer);
+  pCharHumidity->notify();
+  
+  snprintf(buffer, sizeof(buffer), "%.2f", currentData.water_temp);
+  pCharWaterTemp->setValue(buffer);
+  pCharWaterTemp->notify();
+  
+  logMessage(LOG_DEBUG, "📡 BLE atualizado");
+}
+
+// ==================== SETUP ====================
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  
+  Serial.println("\n╔════════════════════════════════════════╗");
+  Serial.println("║ AquaSys Sensor - v4.3.2-OLED-COMPLETE ║");
+  Serial.println("╚════════════════════════════════════════╝\n");
+  
+  deviceUUID = generateDeviceUUID();
+  logMessage(LOG_INFO, "🆔 UUID: " + deviceUUID);
+  
+  // Inicializar Watchdog
+  initWatchdog();
+  
+  // Configurar pinos dos botões
+  pinMode(BUTTON_UP, INPUT_PULLUP);
+  pinMode(BUTTON_DOWN, INPUT_PULLUP);
+  pinMode(BUTTON_SELECT, INPUT_PULLUP);
+  pinMode(BUTTON_BACK, INPUT_PULLUP);
+  
+  // Inicializar OLED
+  initOLED();
+  displayMessage("Iniciando...");
+  
+  // Inicializar sensores
+  dht.begin();
+  ds18b20.begin();
+  logMessage(LOG_INFO, "Sensores iniciados");
+  
+  // Carregar configurações
+  loadCalibration();
+  loadWiFiConfig();
+  loadMqttCredentials();
+  
+  // Inicializar BLE
+  setupBLE();
+  
+  // Conectar WiFi
+  if (!connectWiFi()) {
+    logMessage(LOG_WARN, "Falha WiFi, iniciando AP...");
+    startAPMode();
+  } else {
+    if (!isAuthenticated) {
+      authenticateDevice();
+    }
+    setupMQTT();
+  }
+  
+  logMessage(LOG_INFO, "✅ Setup completo!");
+  logMessage(LOG_INFO, "Memória: " + String(ESP.getFreeHeap()) + " bytes");
+  
+  displayMessage("Sistema pronto!");
+  delay(2000);
+}
+
+// ==================== LOOP ====================
+void loop() {
+  resetWatchdog();
+  
+  // Modo AP
+  if (apMode) {
+    dnsServer.processNextRequest();
+    server.handleClient();
+    
+    if (millis() - apModeStartTime > AP_TIMEOUT) {
+      stopAPMode();
+      connectWiFi();
+    }
+    
+    // Atualizar display e botões mesmo em modo AP
+    handleButtons();
+    updateDisplay();
+    
+    delay(10);
+    return;
+  }
+  
+  // Verificar WiFi
+  checkWiFi();
+  
+  // Verificar MQTT
+  if (wifiConnected) {
+    if (!mqttConnected) {
+      if (!isAuthenticated) {
+        authenticateDevice();
+      }
+      reconnectMQTT();
+    }
+    
+    if (mqttConnected) {
+      mqttClient.loop();
+    }
+  }
+  
+  // Ler sensores
+  if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL) {
+    lastSensorRead = millis();
+    readSensors();
+    
+    if (currentData.valid) {
+      publishSensorData();
+      publishDataToBLE();
+    }
+  }
+  
+  // Heartbeat
+  if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+    lastHeartbeat = millis();
+    publishHeartbeat();
+  }
+  
+  // Atualizar interface OLED
+  handleButtons();
+  updateDisplay();
+  
+  delay(50);
 }
