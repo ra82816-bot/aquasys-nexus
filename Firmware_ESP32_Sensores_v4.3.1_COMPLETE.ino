@@ -1336,7 +1336,12 @@ void readSensors() {
 
 // ==================== SEÇÃO 15: WATCHDOG ====================
 void initWatchdog() {
-  esp_task_wdt_init(WATCHDOG_TIMEOUT, true);
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WATCHDOG_TIMEOUT * 1000,
+    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
   logMessage(LOG_INFO, "✅ Watchdog iniciado (" + String(WATCHDOG_TIMEOUT) + "s)");
 }
