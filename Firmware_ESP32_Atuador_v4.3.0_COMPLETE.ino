@@ -123,11 +123,17 @@ struct SensorData {
 
 struct RelayConfig {
   bool enabled;
-  String mode;  // "manual", "auto", "emergency_led", "emergency_cycle"
+  String mode;  // "manual", "auto", "emergency_led", "emergency_cycle", "cycle", "led"
   bool state;
   float min_threshold;
   float max_threshold;
   String name;  // Nome do relé
+  // Parâmetros específicos por modo
+  int led_on_hour;
+  int led_off_hour;
+  int cycle_on_min;
+  int cycle_off_min;
+  unsigned long cycle_last_toggle;
 };
 
 struct EmergencyConfig {
@@ -1182,10 +1188,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     // ✅ Validar índice e aplicar comando
     if (relayIndex >= 0 && relayIndex < 8) {
       setRelay(relayIndex, state);
-      // ✅ CORREÇÃO: Usar "unused" em vez de "manual" (enum válido)
-      relays[relayIndex].mode = "unused";
+      // ✅ CORREÇÃO: Definir modo manual para comandos manuais
+      relays[relayIndex].mode = "manual";
       publishRelayStatus();
-      logMessage(LOG_INFO, "✅ Relé " + String(relayIndex) + " → " + (state ? "LIGADO" : "DESLIGADO"));
+      logMessage(LOG_INFO, "✅ Relé " + String(relayIndex) + " → " + (state ? "LIGADO" : "DESLIGADO") + " (modo manual)");
     } else {
       logMessage(LOG_ERROR, "❌ Índice de relé inválido: " + String(relayIndex) + " (deve ser 0-7)");
     }
@@ -1215,6 +1221,34 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (doc.containsKey("name")) {
           relays[relayIndex].name = doc["name"].as<String>();
           logMessage(LOG_INFO, "  Nome: " + relays[relayIndex].name);
+        }
+        
+        // ✅ Parâmetros específicos de LED
+        if (doc.containsKey("led_on_hour")) {
+          relays[relayIndex].led_on_hour = doc["led_on_hour"];
+          logMessage(LOG_INFO, "  LED On Hour: " + String(relays[relayIndex].led_on_hour));
+        }
+        if (doc.containsKey("led_off_hour")) {
+          relays[relayIndex].led_off_hour = doc["led_off_hour"];
+          logMessage(LOG_INFO, "  LED Off Hour: " + String(relays[relayIndex].led_off_hour));
+        }
+        
+        // ✅ Parâmetros específicos de CYCLE
+        if (doc.containsKey("cycle_on_min")) {
+          relays[relayIndex].cycle_on_min = doc["cycle_on_min"];
+          logMessage(LOG_INFO, "  Cycle On Min: " + String(relays[relayIndex].cycle_on_min));
+        }
+        if (doc.containsKey("cycle_off_min")) {
+          relays[relayIndex].cycle_off_min = doc["cycle_off_min"];
+          logMessage(LOG_INFO, "  Cycle Off Min: " + String(relays[relayIndex].cycle_off_min));
+        }
+        
+        // ✅ Inicializar timestamp se for modo cycle
+        if (relays[relayIndex].mode == "cycle") {
+          relays[relayIndex].cycle_last_toggle = millis();
+          logMessage(LOG_INFO, "  ✅ Modo CYCLE ativado! Ciclo: " + 
+                     String(relays[relayIndex].cycle_on_min) + "min ON / " + 
+                     String(relays[relayIndex].cycle_off_min) + "min OFF");
         }
         
         // Salvar configuração na NVS
@@ -1484,6 +1518,11 @@ void initRelays() {
     relays[i].min_threshold = 0.0;
     relays[i].max_threshold = 0.0;
     relays[i].name = "Relé " + String(i + 1);
+    relays[i].led_on_hour = 6;
+    relays[i].led_off_hour = 0;
+    relays[i].cycle_on_min = 15;
+    relays[i].cycle_off_min = 15;
+    relays[i].cycle_last_toggle = 0;
   }
   
   // Configuração padrão pH (exemplo)
@@ -1502,11 +1541,20 @@ void loadRelayConfig() {
     String keyMin = "min" + String(i);
     String keyMax = "max" + String(i);
     String keyName = "name" + String(i);
+    String keyLedOn = "led_on" + String(i);
+    String keyLedOff = "led_off" + String(i);
+    String keyCycleOn = "cyc_on" + String(i);
+    String keyCycleOff = "cyc_off" + String(i);
     
     relays[i].mode = prefs.getString(keyMode.c_str(), "auto");
     relays[i].min_threshold = prefs.getFloat(keyMin.c_str(), 0.0);
     relays[i].max_threshold = prefs.getFloat(keyMax.c_str(), 0.0);
     relays[i].name = prefs.getString(keyName.c_str(), "Relé " + String(i + 1));
+    relays[i].led_on_hour = prefs.getInt(keyLedOn.c_str(), 6);
+    relays[i].led_off_hour = prefs.getInt(keyLedOff.c_str(), 0);
+    relays[i].cycle_on_min = prefs.getInt(keyCycleOn.c_str(), 15);
+    relays[i].cycle_off_min = prefs.getInt(keyCycleOff.c_str(), 15);
+    relays[i].cycle_last_toggle = millis();
   }
   
   prefs.end();
@@ -1521,11 +1569,19 @@ void saveRelayConfig() {
     String keyMin = "min" + String(i);
     String keyMax = "max" + String(i);
     String keyName = "name" + String(i);
+    String keyLedOn = "led_on" + String(i);
+    String keyLedOff = "led_off" + String(i);
+    String keyCycleOn = "cyc_on" + String(i);
+    String keyCycleOff = "cyc_off" + String(i);
     
     prefs.putString(keyMode.c_str(), relays[i].mode);
     prefs.putFloat(keyMin.c_str(), relays[i].min_threshold);
     prefs.putFloat(keyMax.c_str(), relays[i].max_threshold);
     prefs.putString(keyName.c_str(), relays[i].name);
+    prefs.putInt(keyLedOn.c_str(), relays[i].led_on_hour);
+    prefs.putInt(keyLedOff.c_str(), relays[i].led_off_hour);
+    prefs.putInt(keyCycleOn.c_str(), relays[i].cycle_on_min);
+    prefs.putInt(keyCycleOff.c_str(), relays[i].cycle_off_min);
   }
   
   prefs.end();
@@ -1543,23 +1599,63 @@ void setRelay(int index, bool state) {
 }
 
 void handleRelayLogic() {
+  unsigned long now = millis();
+  
+  // ✅ LÓGICA CYCLE: Processar TODOS os relés em modo cycle
+  for (int i = 0; i < 8; i++) {
+    if (relays[i].mode == "cycle") {
+      // Converter minutos para milissegundos
+      unsigned long onTime = relays[i].cycle_on_min * 60000UL;
+      unsigned long offTime = relays[i].cycle_off_min * 60000UL;
+      unsigned long cycleTime = relays[i].state ? onTime : offTime;
+      
+      // Verificar se é hora de alternar
+      if (now - relays[i].cycle_last_toggle >= cycleTime) {
+        bool newState = !relays[i].state;
+        setRelay(i, newState);
+        relays[i].cycle_last_toggle = now;
+        publishRelayStatus();
+        
+        logMessage(LOG_INFO, "🔄 CYCLE Relé " + String(i) + " → " + 
+                   (newState ? "ON" : "OFF") + " | Próxima troca em " + 
+                   String(newState ? onTime/60000 : offTime/60000) + " min");
+      }
+    }
+    
+    // ✅ LÓGICA LED: Baseado em hora do dia
+    else if (relays[i].mode == "led") {
+      time_t t = estimatedTime();
+      if (t > 0) {
+        struct tm* timeinfo = localtime(&t);
+        int hour = timeinfo->tm_hour;
+        bool shouldBeOn = (hour >= relays[i].led_on_hour && hour < relays[i].led_off_hour);
+        
+        if (relays[i].state != shouldBeOn) {
+          setRelay(i, shouldBeOn);
+          publishRelayStatus();
+          logMessage(LOG_INFO, "💡 LED Relé " + String(i) + " → " + 
+                     (shouldBeOn ? "ON" : "OFF") + " (hora: " + String(hour) + ")");
+        }
+      }
+    }
+  }
+  
+  // ✅ LÓGICA AUTO: Baseado em sensores (se dados válidos)
   if (!currentSensorData.valid) return;
   if (millis() - currentSensorData.timestamp > 60000) {
-    // Dados antigos (>1min), invalidar
     currentSensorData.valid = false;
     return;
   }
   
-  // Lógica automática pH (Relé 0)
-  if (relays[0].mode == "auto") {
-    if (currentSensorData.ph < relays[0].min_threshold) {
-      setRelay(0, true); // pH baixo → ligar
-    } else if (currentSensorData.ph > relays[0].max_threshold) {
-      setRelay(0, false); // pH alto → desligar
+  for (int i = 0; i < 8; i++) {
+    if (relays[i].mode == "auto") {
+      if (currentSensorData.ph < relays[i].min_threshold) {
+        setRelay(i, true);
+      } else if (currentSensorData.ph > relays[i].max_threshold) {
+        setRelay(i, false);
+      }
     }
   }
-  
-  // Adicionar mais lógicas automáticas aqui...
 }
 
 // ==================== SEÇÃO 14: IMPLEMENTAÇÃO - EMERGENCY MODE ====================

@@ -341,10 +341,10 @@ export const useMqtt = () => {
         return;
       }
 
-      // ✅ relayIndex já vem como 0-7 do componente
+      // ✅ CORREÇÃO: Enviar config na raiz do JSON (não aninhado)
       const message = {
         relay: relayIndex, // Índice 0-7 direto
-        config: config
+        ...config // Spread dos parâmetros na raiz
       };
 
       const deviceTopic = `aquasys/${deviceUuid}/relay/config`;
