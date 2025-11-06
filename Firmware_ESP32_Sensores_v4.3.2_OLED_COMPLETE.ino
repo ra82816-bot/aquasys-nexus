@@ -438,6 +438,7 @@ void updateDisplay() {
         }
         display.println("----------------");
         display.println("[SELECT] Escolher");
+        display.println("[BACK] Sair");
       } else {
         float currentVoltage = readAverageADC(PH_SENSOR_PIN) * 3.3 / 4095.0;
         float currentRaw = readAverageADC(TDS_SENSOR_PIN);
@@ -567,9 +568,17 @@ void handleButtons() {
     lastDebounce[3] = millis();
     logMessage(LOG_DEBUG, "BTN BACK");
     
-    if (calibrationMode != CAL_NONE) {
-      calibrationMode = CAL_NONE;
-      calibrationMenuIndex = 0;
+    if (currentPage == PAGE_CALIBRATION) {
+      if (calibrationMode != CAL_NONE) {
+        // Sair do modo de calibração específico
+        calibrationMode = CAL_NONE;
+        calibrationMenuIndex = 0;
+        logMessage(LOG_INFO, "Calibração cancelada");
+      } else {
+        // Sair da página de calibração
+        currentPage = PAGE_DASHBOARD;
+        logMessage(LOG_INFO, "Voltou ao Dashboard");
+      }
     }
   }
 }
@@ -829,13 +838,18 @@ void setupWebServer() {
 }
 
 void handleRoot() {
+  // Adicionar cabeçalhos para evitar cache e forçar o captive portal
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "-1");
+  
   String html = R"rawliteral(
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AquaSys - Configuração</title>
+  <title>AquaSys - Configuração WiFi</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -1104,8 +1118,12 @@ void handleStatus() {
 }
 
 void handleNotFound() {
-  server.sendHeader("Location", "/", true);
-  server.send(302, "text/plain", "");
+  // Captive Portal - redirecionar TODAS as requisições para a página principal
+  server.sendHeader("Location", "http://192.168.4.1/", true);
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "-1");
+  server.send(302, "text/html", "");
 }
 
 // ==================== NTP ====================
