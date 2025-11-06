@@ -191,7 +191,7 @@ serve(async (req) => {
     // Processar heartbeat com health data
     if (topic === 'aquasys/heartbeat') {
       const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
-      console.log('Heartbeat recebido:', JSON.stringify(data));
+      console.log('💓 Heartbeat recebido:', JSON.stringify(data, null, 2));
 
       // Extrair device_uuid da mensagem
       let deviceUuid = data.device_uuid;
@@ -206,59 +206,71 @@ serve(async (req) => {
           .from('devices')
           .select('id')
           .eq('device_uuid', deviceUuid)
-          .single();
+          .maybeSingle();
 
         if (device) {
+          console.log(`✅ Device encontrado: ${deviceUuid} (ID: ${device.id})`);
+          
+          // ✅ SUPORTE PARA FIRMWARE v4.3.0 (estrutura aninhada) E VERSÕES ANTIGAS
+          const status = data.status || {};
+          const memory = data.memory || {};
+          const wifi = data.wifi || {};
+          const mqtt = data.mqtt || {};
+          const sensors = data.sensors || {};
+          
           // Inserir health data
           const healthData: any = {
             device_id: device.id,
-            uptime_seconds: data.uptime || 0,
-            free_heap: data.free_heap || data.freeHeap,
-            min_free_heap: data.min_free_heap || data.minFreeHeap,
+            // Uptime
+            uptime_seconds: data.uptime_ms ? Math.floor(data.uptime_ms / 1000) : (data.uptime || 0),
+            // Memória (v4.3.0 ou formato antigo)
+            free_heap: memory.free_heap || data.free_heap || data.freeHeap || 0,
+            min_free_heap: memory.min_free_heap || data.min_free_heap || data.minFreeHeap || 0,
+            // WiFi (v4.3.0 ou formato antigo)
+            wifi_ssid: wifi.ssid || data.wifi_ssid || null,
+            wifi_rssi: status.rssi || wifi.rssi || data.wifi_rssi || -70,
+            wifi_ip: status.ip_address || wifi.ip || data.wifi_ip || null,
+            wifi_reconnects: wifi.reconnects || data.wifi_reconnects || 0,
+            // MQTT (v4.3.0 ou formato antigo)
+            mqtt_connected: status.mqtt_connected ?? mqtt.connected ?? (data.mqtt_connected !== false),
+            mqtt_failed_attempts: mqtt.failed_attempts || data.mqtt_failed_attempts || 0,
+            mqtt_last_message_age_ms: mqtt.last_message_age_ms || data.mqtt_last_message_age_ms || 0,
+            // Sensores
+            sensor_ph_valid: sensors.ph_valid ?? data.sensor_ph_valid ?? null,
+            sensor_ec_valid: sensors.ec_valid ?? data.sensor_ec_valid ?? null,
+            sensor_temp_valid: sensors.temp_valid ?? data.sensor_temp_valid ?? null,
+            sensor_humidity_valid: sensors.humidity_valid ?? data.sensor_humidity_valid ?? null,
+            sensor_water_temp_valid: sensors.water_temp_valid ?? data.sensor_water_temp_valid ?? null,
           };
 
-          // Dados WiFi
-          if (data.wifi) {
-            healthData.wifi_ssid = data.wifi.ssid;
-            healthData.wifi_rssi = data.wifi.rssi || data.wifi_rssi;
-            healthData.wifi_ip = data.wifi.ip;
-            healthData.wifi_reconnects = data.wifi.reconnects || 0;
-          } else if (data.wifi_rssi) {
-            healthData.wifi_rssi = data.wifi_rssi;
-          }
-
-          // Dados MQTT
-          if (data.mqtt) {
-            healthData.mqtt_connected = data.mqtt.connected !== false;
-            healthData.mqtt_failed_attempts = data.mqtt.failed_attempts || 0;
-            healthData.mqtt_last_message_age_ms = data.mqtt.last_message_age_ms;
-          }
-
-          // Dados dos sensores
-          if (data.sensors) {
-            healthData.sensor_ph_valid = data.sensors.ph_valid;
-            healthData.sensor_ec_valid = data.sensors.ec_valid;
-            healthData.sensor_temp_valid = data.sensors.temp_valid;
-            healthData.sensor_humidity_valid = data.sensors.humidity_valid;
-            healthData.sensor_water_temp_valid = data.sensors.water_temp_valid;
-          }
+          console.log('💾 Salvando device_health:', JSON.stringify(healthData, null, 2));
 
           const { error: healthError } = await supabaseAdmin
             .from('device_health')
             .insert(healthData);
 
           if (healthError) {
-            console.error('Erro ao inserir health data:', healthError);
+            console.error('❌ Erro ao inserir health data:', healthError);
           } else {
-            console.log('Health data inserida com sucesso!');
+            console.log(`✅ Health data salvo para ${deviceUuid}`);
           }
 
-          // Atualizar last_seen_at do device
-          await supabaseAdmin
+          // ✅ CRÍTICO: Atualizar last_seen_at do device (para status Online/Offline)
+          const { error: updateError } = await supabaseAdmin
             .from('devices')
             .update({ last_seen_at: new Date().toISOString() })
             .eq('id', device.id);
+
+          if (updateError) {
+            console.error('❌ Erro ao atualizar last_seen_at:', updateError);
+          } else {
+            console.log(`✅ last_seen_at atualizado para ${deviceUuid}`);
+          }
+        } else {
+          console.warn(`⚠️ Device não encontrado no banco: ${deviceUuid}`);
         }
+      } else {
+        console.error('❌ Heartbeat sem device_uuid válido');
       }
     }
 

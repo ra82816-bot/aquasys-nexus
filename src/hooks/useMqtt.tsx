@@ -248,55 +248,33 @@ export const useMqtt = () => {
     }
   }, []);
 
-  // ✅ FASE 1: Salvar device health (heartbeat)
+  // ✅ FASE 1: Salvar device health (heartbeat) via Edge Function
   const saveDeviceHealth = useCallback(async (data: any) => {
     try {
-      console.log('💾 Processando heartbeat...', data);
+      console.log('💾 Processando heartbeat via Edge Function:', data.device_uuid);
       
       const deviceUuid = data.device_uuid || 'unknown';
       
-      // 1. Mapear UUID → device_id
-      const { data: device, error: deviceError } = await supabase
-        .from('devices')
-        .select('id')
-        .eq('device_uuid', deviceUuid)
-        .single();
-      
-      if (deviceError || !device) {
-        console.error('❌ Device não encontrado:', deviceUuid);
+      if (deviceUuid === 'unknown') {
+        console.error('❌ Heartbeat sem device_uuid');
         return;
       }
       
-      // 2. Extrair métricas do heartbeat
-      const healthData = {
-        device_id: device.id,
-        uptime_seconds: Math.floor((data.uptime_ms || 0) / 1000),
-        wifi_rssi: data.status?.rssi || 0,
-        wifi_ssid: data.status?.ip_address || null, // Temporário até firmware enviar SSID
-        wifi_reconnects: 0, // Firmware v4.2.3 não envia ainda
-        mqtt_connected: data.status?.mqtt_connected ?? false,
-        mqtt_failed_attempts: 0,
-        free_heap: data.memory?.free_heap || 0,
-        min_free_heap: data.memory?.min_free_heap || 0,
-        sensor_ph_valid: null,
-        sensor_ec_valid: null,
-        sensor_temp_valid: null,
-        sensor_humidity_valid: null,
-        sensor_water_temp_valid: null,
-      };
-      
-      // 3. Salvar no banco
-      const { error: insertError } = await supabase
-        .from('device_health')
-        .insert(healthData);
-      
-      if (insertError) {
-        console.error('❌ Erro ao salvar device health:', insertError);
+      // ✅ Enviar para Edge Function (tem service role para UPDATE/INSERT)
+      const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
+        body: {
+          topic: 'aquasys/heartbeat',
+          payload: data
+        }
+      });
+
+      if (error) {
+        console.error('❌ Erro ao processar heartbeat via Edge Function:', error);
       } else {
-        console.log('✅ Device health salvo:', deviceUuid);
+        console.log('✅ Heartbeat processado com sucesso:', result);
       }
     } catch (error) {
-      console.error('❌ Erro ao processar heartbeat:', error);
+      console.error('❌ Erro ao chamar Edge Function para heartbeat:', error);
     }
   }, []);
 
