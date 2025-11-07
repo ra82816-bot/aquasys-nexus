@@ -368,7 +368,7 @@ String generateDeviceUUID() {
   delay(100);  // Garantir inicialização do WiFi
   
   uint8_t mac[6];
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);  // Usar função nativa do ESP32
+  WiFi.macAddress(mac);  // Agora funcionará corretamente com WiFi inicializado
   
   char uuid[20];
   sprintf(uuid, "SEN-%02X%02X%02X%02X%02X%02X", 
