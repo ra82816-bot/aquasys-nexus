@@ -558,7 +558,7 @@ void updateDisplay() {
       }
       break;
       
-    case PAGE_SYSTEM:
+    case PAGE_SYSTEM: {
       if (showQRCode) {
         drawQRCode();
         return;  // Não executar o resto do update
@@ -575,6 +575,7 @@ void updateDisplay() {
       display.printf("Uptime: %lus\n", millis() / 1000);
       display.println("[SELECT] QR Code");
       break;
+    }
       
     default:
       break;
