@@ -214,6 +214,11 @@ DNSServer dnsServer;
 unsigned long apModeStartTime = 0;
 const byte DNS_PORT = 53;
 
+// WiFi Scan Cache (para evitar desconexões frequentes do AP)
+String cachedNetworks = "";
+unsigned long lastScanTime = 0;
+const unsigned long SCAN_CACHE_DURATION = 60000; // 60s cache
+
 // MQTT
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
@@ -925,6 +930,7 @@ void handleRoot() {
   html += "button{background:#667eea;color:#fff;border:none;cursor:pointer;font-weight:bold}";
   html += "button:hover{background:#5568d3}";
   html += ".info{background:#f0f4ff;padding:10px;border-radius:5px;margin-bottom:15px;font-size:13px}";
+  html += ".warn{background:#fff3cd;color:#856404;padding:8px;border-radius:5px;margin-bottom:10px;font-size:12px}";
   html += "#status{margin-top:15px;padding:10px;border-radius:5px;display:none}";
   html += ".ok{background:#d4edda;color:#155724}";
   html += ".err{background:#f8d7da;color:#721c24}";
@@ -932,6 +938,7 @@ void handleRoot() {
   html += "<div class='box'>";
   html += "<h1>🌊 AquaSys Sensor</h1>";
   html += "<div class='info'><b>Device:</b> " + deviceUUID + "<br><b>FW:</b> 4.3.3</div>";
+  html += "<div class='warn'>⚠️ O WiFi pode desconectar brevemente no 1º scan</div>";
   html += "<button onclick='scan()'>🔍 Escanear WiFi</button>";
   html += "<form onsubmit='save(event)'>";
   html += "<select id='ssid' required><option value=''>Selecione rede...</option></select>";
@@ -943,11 +950,12 @@ void handleRoot() {
   html += "<script>";
   html += "function scan(){";
   html += "let btn=event.target;btn.disabled=true;btn.textContent='Escaneando...';";
-  html += "fetch('/scan',{signal:AbortSignal.timeout(30000)}).then(r=>r.json()).then(d=>{";
+  html += "fetch('/scan',{signal:AbortSignal.timeout(45000)}).then(r=>r.json()).then(d=>{";
+  html += "if(d.scanning){btn.disabled=false;btn.textContent='🔄 Tentar novamente';alert('Scan em andamento. Aguarde 5s e tente novamente.');return;}";
   html += "let s=document.getElementById('ssid');s.innerHTML='<option value=\"\">Selecione...</option>';";
-  html += "d.networks.forEach(n=>{let o=document.createElement('option');o.value=n.ssid;o.text=n.ssid+' ('+n.rssi+')';s.add(o)});";
-  html += "btn.disabled=false;btn.textContent='🔍 Escanear WiFi';";
-  html += "}).catch(e=>{alert('Erro ao escanear');btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});}";
+  html += "d.networks.forEach(n=>{let o=document.createElement('option');o.value=n.ssid;o.text=n.ssid+' ('+n.rssi+' dBm)';s.add(o)});";
+  html += "btn.disabled=false;btn.textContent='✅ Escanear WiFi';";
+  html += "}).catch(e=>{alert('Erro. Reconecte ao WiFi e tente novamente.');btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});}";
   html += "function save(e){e.preventDefault();";
   html += "let d={ssid:document.getElementById('ssid').value,password:document.getElementById('pass').value};";
   html += "let st=document.getElementById('status');st.textContent='Salvando...';st.className='';st.style.display='block';";
@@ -962,58 +970,70 @@ void handleRoot() {
 
 void handleScan() {
   resetWatchdog();
-  logMessage(LOG_INFO, "Escaneando WiFi...");
   
-  // Iniciar resposta com chunked encoding
+  // Verificar se temos cache válido (< 60s)
+  unsigned long now = millis();
+  bool useCached = (cachedNetworks.length() > 0) && 
+                   ((now - lastScanTime) < SCAN_CACHE_DURATION);
+  
+  if (useCached) {
+    logMessage(LOG_INFO, "📡 Usando cache de scan (" + 
+               String((now - lastScanTime) / 1000) + "s atrás)");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", cachedNetworks);
+    return;
+  }
+  
+  // Cache expirou ou vazio - fazer novo scan
+  logMessage(LOG_WARN, "⚠️ Novo scan WiFi - AP pode desconectar brevemente");
+  
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Connection", "close");
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.send(200, "application/json", "");
+  server.send(200, "application/json", "{\"networks\":[],\"scanning\":true}");
   
-  // Scan assíncrono
-  int n = WiFi.scanNetworks(false, false);
+  // Fazer scan em modo bloqueado mas rápido
+  WiFi.scanDelete();  // Limpar scan anterior
+  resetWatchdog();
   
-  while (n == WIFI_SCAN_RUNNING) {
-    delay(100);
-    resetWatchdog();
-    n = WiFi.scanComplete();
-  }
+  int n = WiFi.scanNetworks(false, false, false, 300);  // 300ms por canal
   
   resetWatchdog();
   
-  // Limitar a 10 redes mais fortes
-  int maxNetworks = min(n, 10);
-  
-  // Enviar abertura do JSON
-  server.sendContent("{\"networks\":[");
-  yield();
-  
-  if (n > 0) {
-    for (int i = 0; i < maxNetworks; i++) {
-      resetWatchdog();
-      
-      if (i > 0) {
-        server.sendContent(",");
-      }
-      
-      // Enviar cada rede individualmente
-      String network = "{\"ssid\":\"" + WiFi.SSID(i) + 
-                      "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
-      server.sendContent(network);
-      
-      // Pequeno delay para não sobrecarregar buffer
-      delay(10);
-      yield();
-    }
+  if (n < 0) {
+    logMessage(LOG_ERROR, "Erro no scan WiFi");
+    cachedNetworks = "{\"networks\":[]}";
+    lastScanTime = now;
+    return;
   }
   
-  // Fechar JSON
-  server.sendContent("]}");
-  server.sendContent("");  // Finalizar chunked
+  // Limitar a 12 redes mais fortes
+  int maxNetworks = min(n, 12);
+  
+  // Construir JSON em cache
+  String json = "{\"networks\":[";
+  
+  for (int i = 0; i < maxNetworks; i++) {
+    resetWatchdog();
+    
+    if (i > 0) json += ",";
+    
+    String ssid = WiFi.SSID(i);
+    ssid.replace("\"", "\\\"");  // Escape aspas
+    
+    json += "{\"ssid\":\"" + ssid + 
+           "\",\"rssi\":" + String(WiFi.RSSI(i)) + 
+           ",\"encrypted\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") + "}";
+  }
+  
+  json += "]}";
   
   WiFi.scanDelete();
   
-  logMessage(LOG_INFO, "Scan completo: " + String(n) + " redes");
+  // Salvar em cache
+  cachedNetworks = json;
+  lastScanTime = now;
+  
+  logMessage(LOG_INFO, "✅ Scan completo: " + String(n) + " redes (cache atualizado)");
 }
 
 void handleSave() {
