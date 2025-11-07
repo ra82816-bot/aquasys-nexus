@@ -35,9 +35,27 @@ export const DevicePairing = () => {
         },
       });
 
-      if (error) throw error;
+      // Verificar erro HTTP (status 409, etc)
+      if (error) {
+        // Tentar parsear a mensagem de erro
+        try {
+          const errorData = typeof error === 'string' ? JSON.parse(error) : error;
+          if (errorData.code === "DEVICE_ALREADY_PAIRED") {
+            toast({
+              title: "Dispositivo já vinculado",
+              description: "Este dispositivo já está vinculado a outra conta",
+              variant: "destructive",
+            });
+            return;
+          }
+        } catch {
+          // Se não conseguir parsear, lançar erro original
+        }
+        throw error;
+      }
 
-      if (data.error) {
+      // Verificar erro no data
+      if (data?.error) {
         if (data.code === "DEVICE_ALREADY_PAIRED") {
           toast({
             title: "Dispositivo já vinculado",
