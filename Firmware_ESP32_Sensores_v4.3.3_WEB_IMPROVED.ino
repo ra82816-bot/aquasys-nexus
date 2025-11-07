@@ -1074,7 +1074,7 @@ void handleScan() {
     logMessage(LOG_INFO, "✅ Scan completo: " + String(n) + " redes");
     
     // Limitar a 15 redes mais fortes
-    int maxNetworks = min(n, 15);
+    int maxNetworks = min((int)n, 15);
     
     // Construir JSON
     String json = "{\"status\":\"complete\",\"networks\":[";
