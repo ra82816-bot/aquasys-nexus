@@ -119,6 +119,7 @@ DallasTemperature ds18b20(&oneWire);
 #define CHAR_UUID_HUMIDITY  "beb5483e-36e1-4688-b7f5-ea07361b26ab"
 #define CHAR_UUID_WATER_TEMP "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 #define CHAR_WIFI_LIST      "a3c87500-8ed3-4bdf-8a39-a01bebede295"
+#define CHAR_UUID_DEVICE    "a3c87500-8ed3-4bdf-8a39-a01bebede296"
 
 // DNS Público
 #define DNS_PRIMARY IPAddress(8, 8, 8, 8)
@@ -258,6 +259,7 @@ Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
 Page currentPage = PAGE_DASHBOARD;
 CalibrationMode calibrationMode = CAL_NONE;
 int calibrationMenuIndex = 0;
+bool showQRCode = false;
 
 // BLE
 BLEServer* pBLEServer = nullptr;
@@ -267,6 +269,7 @@ BLECharacteristic* pCharAirTemp = nullptr;
 BLECharacteristic* pCharHumidity = nullptr;
 BLECharacteristic* pCharWaterTemp = nullptr;
 BLECharacteristic* pCharWiFiList = nullptr;
+BLECharacteristic* pCharDeviceUUID = nullptr;
 bool bleActive = false;
 bool deviceConnectedBLE = false;
 
@@ -275,6 +278,7 @@ unsigned long lastSensorRead = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastWdtReset = 0;
 unsigned long lastDisplayUpdate = 0;
+unsigned long lastUUIDPrint = 0;
 
 // Debounce dos Botões
 unsigned long lastDebounce[4] = {0, 0, 0, 0};
@@ -374,6 +378,51 @@ String generateDeviceUUID() {
   sprintf(uuid, "SEN-%02X%02X%02X%02X%02X%02X", 
           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   return String(uuid);
+}
+
+void printUUIDBanner() {
+  Serial.println();
+  Serial.println("╔════════════════════════════════════╗");
+  Serial.println("║      DEVICE UUID - IMPORTANTE!     ║");
+  Serial.println("╠════════════════════════════════════╣");
+  Serial.printf("║  UUID: %-24s ║\n", deviceUUID.c_str());
+  Serial.println("║                                    ║");
+  Serial.println("║  Use este UUID para cadastrar     ║");
+  Serial.println("║  o dispositivo no app!             ║");
+  Serial.println("║                                    ║");
+  Serial.println("║  Firmware: v4.3.3-WEB-IMPROVED     ║");
+  Serial.println("║  Tipo: SENSOR                      ║");
+  Serial.println("╚════════════════════════════════════╝");
+  Serial.println();
+}
+
+// Função simplificada para desenhar QR Code no OLED
+void drawQRCode() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("=== QR CODE ===");
+  display.println();
+  
+  // QR Code simplificado (padrão de pixels)
+  // Para um QR Code real, precisaríamos de uma biblioteca específica
+  // Por ora, vamos mostrar o UUID em formato grande
+  display.setTextSize(1);
+  display.println("UUID para App:");
+  display.println();
+  display.setTextSize(1);
+  
+  // Dividir UUID em 2 linhas para melhor visualização
+  String line1 = deviceUUID.substring(0, 13);
+  String line2 = deviceUUID.substring(13);
+  
+  display.println(line1);
+  display.println(line2);
+  display.println();
+  display.setTextSize(1);
+  display.println("[BACK] Voltar");
+  
+  display.display();
 }
 
 // ==================== WATCHDOG ====================
@@ -510,12 +559,21 @@ void updateDisplay() {
       break;
       
     case PAGE_SYSTEM:
+      if (showQRCode) {
+        drawQRCode();
+        return;  // Não executar o resto do update
+      }
       display.println("=== SISTEMA ===");
-      display.printf("UUID:\n%s\n", deviceUUID.c_str());
+      display.println("UUID:");
+      // Dividir UUID para melhor visualização
+      String line1 = deviceUUID.substring(0, 13);
+      String line2 = deviceUUID.substring(13);
+      display.println(line1);
+      display.println(line2);
+      display.println("----------------");
       display.printf("Mem: %d KB\n", ESP.getFreeHeap() / 1024);
       display.printf("Uptime: %lus\n", millis() / 1000);
-      display.println("----------------");
-      display.println("FW: v4.3.3-WEB");
+      display.println("[SELECT] QR Code");
       break;
       
     default:
@@ -554,6 +612,12 @@ void handleButtons() {
   if (digitalRead(BUTTON_SELECT) == LOW && (millis() - lastDebounce[2] > debounceDelay)) {
     lastDebounce[2] = millis();
     logMessage(LOG_DEBUG, "BTN SELECT");
+    
+    // Toggle QR Code na página SYSTEM
+    if (currentPage == PAGE_SYSTEM) {
+      showQRCode = !showQRCode;
+      logMessage(LOG_INFO, showQRCode ? "Exibindo QR Code" : "Ocultando QR Code");
+    }
     
     if (currentPage == PAGE_CALIBRATION) {
       if (calibrationMode == CAL_NONE) {
@@ -597,6 +661,13 @@ void handleButtons() {
   if (digitalRead(BUTTON_BACK) == LOW && (millis() - lastDebounce[3] > debounceDelay)) {
     lastDebounce[3] = millis();
     logMessage(LOG_DEBUG, "BTN BACK");
+    
+    // Voltar do QR Code
+    if (showQRCode) {
+      showQRCode = false;
+      logMessage(LOG_INFO, "Voltou do QR Code");
+      return;
+    }
     
     if (currentPage == PAGE_CALIBRATION) {
       if (calibrationMode != CAL_NONE) {
@@ -955,8 +1026,10 @@ void handleRoot() {
   html += "</style></head><body>";
   html += "<div class='box'>";
   html += "<h1>🌊 AquaSys Sensor</h1>";
-  html += "<div class='info'><b>Device:</b> " + deviceUUID + "<br><b>FW:</b> 4.3.3-ASYNC</div>";
-  html += "<div class='success'>✅ Scan assíncrono - WiFi permanece conectado!</div>";
+  html += "<div class='warn' style='background:#667eea;color:#fff;font-size:16px;font-weight:bold;text-align:center;padding:15px'>";
+  html += "📱 UUID DO DISPOSITIVO<br>" + deviceUUID + "</div>";
+  html += "<div class='info'><b>Firmware:</b> 4.3.3-WEB-IMPROVED<br><b>Tipo:</b> SENSOR</div>";
+  html += "<div class='success'>✅ Copie o UUID acima para cadastrar no app!</div>";
   html += "<button onclick='scan()'>🔍 Escanear WiFi</button>";
   html += "<form onsubmit='save(event)'>";
   html += "<select id='ssid' required><option value=''>Selecione rede...</option></select>";
@@ -1518,6 +1591,13 @@ void setupBLE() {
   );
   pCharWaterTemp->addDescriptor(new BLE2902());
   
+  // Characteristic para UUID do dispositivo
+  pCharDeviceUUID = pService->createCharacteristic(
+    CHAR_UUID_DEVICE,
+    BLECharacteristic::PROPERTY_READ
+  );
+  pCharDeviceUUID->setValue(deviceUUID.c_str());
+  
   pService->start();
   
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
@@ -1574,7 +1654,7 @@ void setup() {
   
   // Gerar UUID
   deviceUUID = generateDeviceUUID();
-  logMessage(LOG_INFO, "UUID: " + deviceUUID);
+  printUUIDBanner();  // Banner visual no Serial Monitor
   resetWatchdog();
   
   // Inicializar OLED
@@ -1682,6 +1762,13 @@ void loop() {
   if (mqttConnected && !apMode && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
     publishHeartbeat();
     lastHeartbeat = millis();
+    resetWatchdog();
+  }
+  
+  // ===== UUID - Imprimir periodicamente no Serial Monitor =====
+  if (millis() - lastUUIDPrint >= 120000) {  // A cada 2 minutos
+    printUUIDBanner();
+    lastUUIDPrint = millis();
     resetWatchdog();
   }
   
