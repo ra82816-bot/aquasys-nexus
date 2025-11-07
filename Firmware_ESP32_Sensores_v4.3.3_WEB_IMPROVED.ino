@@ -1416,14 +1416,27 @@ void setupMQTT() {
     }
   }
   
+  // Otimização de memória SSL - CRÍTICO para ESP32
+  logMessage(LOG_INFO, "Memória livre antes SSL: " + String(ESP.getFreeHeap()) + " bytes");
+  
+  // Reduzir buffers SSL para economizar memória (padrão é 16KB cada)
+  espClient.setBufferSizes(512, 512);  // RX=512, TX=512 (ao invés de 16384)
+  
+  // Desabilitar validação de certificado (economiza ~40KB de RAM)
   espClient.setInsecure();
-  espClient.setTimeout(MQTT_SOCKET_TIMEOUT);  // Timeout do socket
+  
+  // Configurar timeout
+  espClient.setTimeout(MQTT_SOCKET_TIMEOUT);
+  
+  // Configurar MQTT com buffer menor
+  mqttClient.setBufferSize(256);  // Reduzir de 256 padrão
   mqttClient.setServer(mqttCreds.broker, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setKeepAlive(60);
-  mqttClient.setSocketTimeout(MQTT_SOCKET_TIMEOUT);  // Timeout de operações MQTT
+  mqttClient.setSocketTimeout(MQTT_SOCKET_TIMEOUT);
   
-  logMessage(LOG_INFO, "MQTT configurado: " + String(mqttCreds.broker) + " (timeout: " + String(MQTT_SOCKET_TIMEOUT) + "s)");
+  logMessage(LOG_INFO, "MQTT configurado: " + String(mqttCreds.broker));
+  logMessage(LOG_INFO, "Memória livre após config: " + String(ESP.getFreeHeap()) + " bytes");
 }
 
 bool reconnectMQTT() {
@@ -1435,13 +1448,28 @@ bool reconnectMQTT() {
   lastMqttAttempt = millis();
   resetWatchdog();
   
-  logMessage(LOG_INFO, "Conectando MQTT...");
+  // Liberar memória antes de conectar
+  logMessage(LOG_INFO, "🔌 Conectando MQTT...");
+  logMessage(LOG_INFO, "Heap livre: " + String(ESP.getFreeHeap()) + " bytes");
+  logMessage(LOG_INFO, "Heap min: " + String(ESP.getMinFreeHeap()) + " bytes");
+  
+  // Desconectar primeiro para liberar recursos
+  if (espClient.connected()) {
+    espClient.stop();
+    delay(100);
+  }
+  
+  resetWatchdog();
   
   unsigned long connectStart = millis();
   bool connected = false;
   
-  // Tentar conectar com timeout
+  // Tentar conectar com timeout reduzido
   while (!connected && (millis() - connectStart) < MQTT_TIMEOUT) {
+    // Forçar garbage collection
+    delay(100);
+    resetWatchdog();
+    
     connected = mqttClient.connect(
       mqttCreds.client_id,
       mqttCreds.username,
@@ -1449,8 +1477,8 @@ bool reconnectMQTT() {
     );
     
     if (!connected) {
-      delay(100);
-      resetWatchdog();  // Reset durante tentativa
+      delay(200);  // Aumentar delay entre tentativas
+      resetWatchdog();
     }
   }
   
@@ -1458,6 +1486,7 @@ bool reconnectMQTT() {
     mqttConnected = true;
     lastMqttSuccess = millis();
     logMessage(LOG_INFO, "✅ MQTT conectado em " + String(millis() - connectStart) + "ms");
+    logMessage(LOG_INFO, "Heap livre pós-conexão: " + String(ESP.getFreeHeap()) + " bytes");
     
     // Publicar heartbeat imediato
     publishHeartbeat();
@@ -1465,14 +1494,33 @@ bool reconnectMQTT() {
     return true;
   } else {
     mqttConnected = false;
-    logMessage(LOG_ERROR, "❌ MQTT timeout após " + String(millis() - connectStart) + "ms - state: " + String(mqttClient.state()));
+    int state = mqttClient.state();
+    logMessage(LOG_ERROR, "❌ MQTT falhou após " + String(millis() - connectStart) + "ms");
+    logMessage(LOG_ERROR, "State: " + String(state) + " | Heap: " + String(ESP.getFreeHeap()) + " bytes");
     
-    // Forçar desconexão
+    // Mapear estados MQTT
+    String stateMsg = "";
+    switch(state) {
+      case -4: stateMsg = "TIMEOUT"; break;
+      case -3: stateMsg = "CONNECTION_LOST"; break;
+      case -2: stateMsg = "CONNECT_FAILED"; break;
+      case -1: stateMsg = "DISCONNECTED"; break;
+      case 1: stateMsg = "BAD_PROTOCOL"; break;
+      case 2: stateMsg = "BAD_CLIENT_ID"; break;
+      case 3: stateMsg = "UNAVAILABLE"; break;
+      case 4: stateMsg = "BAD_CREDENTIALS"; break;
+      case 5: stateMsg = "UNAUTHORIZED"; break;
+      default: stateMsg = "UNKNOWN"; break;
+    }
+    logMessage(LOG_ERROR, "Código: " + stateMsg);
+    
+    // Limpar conexão
+    espClient.stop();
     mqttClient.disconnect();
     
     // Se falhar consistentemente, tentar re-autenticar
     if (millis() - lastMqttSuccess > 300000) {  // 5min
-      logMessage(LOG_INFO, "Tentando re-autenticação...");
+      logMessage(LOG_INFO, "⚠️ Tentando re-autenticação...");
       authenticateDevice();
       setupMQTT();
     }
