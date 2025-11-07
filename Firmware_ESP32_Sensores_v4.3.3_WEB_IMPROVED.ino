@@ -363,8 +363,13 @@ void logMessage(LogLevel level, const String& message) {
 
 // ==================== UUID ====================
 String generateDeviceUUID() {
+  // Inicializar WiFi temporariamente para ler MAC corretamente
+  WiFi.mode(WIFI_STA);
+  delay(100);  // Garantir inicialização do WiFi
+  
   uint8_t mac[6];
-  WiFi.macAddress(mac);
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);  // Usar função nativa do ESP32
+  
   char uuid[20];
   sprintf(uuid, "SEN-%02X%02X%02X%02X%02X%02X", 
           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
