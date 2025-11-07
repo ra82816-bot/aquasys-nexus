@@ -214,10 +214,20 @@ DNSServer dnsServer;
 unsigned long apModeStartTime = 0;
 const byte DNS_PORT = 53;
 
-// WiFi Scan Cache (para evitar desconexões frequentes do AP)
+// WiFi Scan - Sistema Assíncrono
+enum ScanState {
+  SCAN_IDLE,
+  SCAN_RUNNING,
+  SCAN_COMPLETE,
+  SCAN_ERROR
+};
+
+ScanState scanState = SCAN_IDLE;
 String cachedNetworks = "";
+unsigned long scanStartTime = 0;
 unsigned long lastScanTime = 0;
-const unsigned long SCAN_CACHE_DURATION = 60000; // 60s cache
+const unsigned long SCAN_TIMEOUT = 30000;  // 30s timeout
+const unsigned long SCAN_CACHE_DURATION = 90000; // 90s cache
 
 // MQTT
 WiFiClientSecure espClient;
@@ -913,11 +923,13 @@ void setupWebServer() {
 void handleRoot() {
   resetWatchdog();
   
-  // Headers anti-cache
+  // Headers otimizados
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.sendHeader("Pragma", "no-cache");
   server.sendHeader("Expires", "0");
   server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Connection", "keep-alive");
+  server.sendHeader("Keep-Alive", "timeout=30, max=100");
   
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
@@ -931,14 +943,15 @@ void handleRoot() {
   html += "button:hover{background:#5568d3}";
   html += ".info{background:#f0f4ff;padding:10px;border-radius:5px;margin-bottom:15px;font-size:13px}";
   html += ".warn{background:#fff3cd;color:#856404;padding:8px;border-radius:5px;margin-bottom:10px;font-size:12px}";
+  html += ".success{background:#d4edda;color:#155724;padding:8px;border-radius:5px;margin-bottom:10px;font-size:12px}";
   html += "#status{margin-top:15px;padding:10px;border-radius:5px;display:none}";
   html += ".ok{background:#d4edda;color:#155724}";
   html += ".err{background:#f8d7da;color:#721c24}";
   html += "</style></head><body>";
   html += "<div class='box'>";
   html += "<h1>🌊 AquaSys Sensor</h1>";
-  html += "<div class='info'><b>Device:</b> " + deviceUUID + "<br><b>FW:</b> 4.3.3</div>";
-  html += "<div class='warn'>⚠️ O WiFi pode desconectar brevemente no 1º scan</div>";
+  html += "<div class='info'><b>Device:</b> " + deviceUUID + "<br><b>FW:</b> 4.3.3-ASYNC</div>";
+  html += "<div class='success'>✅ Scan assíncrono - WiFi permanece conectado!</div>";
   html += "<button onclick='scan()'>🔍 Escanear WiFi</button>";
   html += "<form onsubmit='save(event)'>";
   html += "<select id='ssid' required><option value=''>Selecione rede...</option></select>";
@@ -948,21 +961,37 @@ void handleRoot() {
   html += "<div id='status'></div>";
   html += "</div>";
   html += "<script>";
+  html += "let pollInterval;";
   html += "function scan(){";
-  html += "let btn=event.target;btn.disabled=true;btn.textContent='Escaneando...';";
-  html += "fetch('/scan',{signal:AbortSignal.timeout(45000)}).then(r=>r.json()).then(d=>{";
-  html += "if(d.scanning){btn.disabled=false;btn.textContent='🔄 Tentar novamente';alert('Scan em andamento. Aguarde 5s e tente novamente.');return;}";
-  html += "let s=document.getElementById('ssid');s.innerHTML='<option value=\"\">Selecione...</option>';";
-  html += "d.networks.forEach(n=>{let o=document.createElement('option');o.value=n.ssid;o.text=n.ssid+' ('+n.rssi+' dBm)';s.add(o)});";
-  html += "btn.disabled=false;btn.textContent='✅ Escanear WiFi';";
-  html += "}).catch(e=>{alert('Erro. Reconecte ao WiFi e tente novamente.');btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});}";
+  html += "let btn=event.target;btn.disabled=true;btn.textContent='⏳ Iniciando...';";
+  html += "fetch('/scan').then(r=>r.json()).then(d=>{";
+  html += "if(d.status==='complete'){showResults(d.networks);btn.disabled=false;btn.textContent='✅ Escanear WiFi';return;}";
+  html += "if(d.status==='scanning'){pollScan(btn);return;}";
+  html += "throw new Error(d.message||'Erro');";
+  html += "}).catch(e=>{alert('Erro: '+e.message);btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});}";
+  html += "function pollScan(btn){";
+  html += "let attempts=0;";
+  html += "pollInterval=setInterval(()=>{";
+  html += "attempts++;btn.textContent='🔍 Escaneando ('+attempts+'s)';";
+  html += "fetch('/scan').then(r=>r.json()).then(d=>{";
+  html += "if(d.status==='complete'){clearInterval(pollInterval);showResults(d.networks);btn.disabled=false;btn.textContent='✅ Escanear WiFi';}";
+  html += "else if(d.status==='error'||d.status==='timeout'){clearInterval(pollInterval);throw new Error(d.message);}";
+  html += "}).catch(e=>{clearInterval(pollInterval);alert('Erro: '+e.message);btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});";
+  html += "if(attempts>30){clearInterval(pollInterval);alert('Timeout');btn.disabled=false;btn.textContent='🔍 Escanear WiFi';}";
+  html += "},1000);}";
+  html += "function showResults(networks){";
+  html += "let s=document.getElementById('ssid');s.innerHTML='<option value=\"\">Selecione rede...</option>';";
+  html += "networks.sort((a,b)=>b.rssi-a.rssi);";
+  html += "networks.forEach(n=>{let o=document.createElement('option');o.value=n.ssid;";
+  html += "let lock=n.encrypted?'🔒':'🔓';o.text=lock+' '+n.ssid+' ('+n.rssi+'dBm)';s.add(o);});}";
   html += "function save(e){e.preventDefault();";
   html += "let d={ssid:document.getElementById('ssid').value,password:document.getElementById('pass').value};";
-  html += "let st=document.getElementById('status');st.textContent='Salvando...';st.className='';st.style.display='block';";
+  html += "if(!d.ssid){alert('Selecione uma rede');return;}";
+  html += "let st=document.getElementById('status');st.textContent='💾 Salvando...';st.className='';st.style.display='block';";
   html += "fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})";
   html += ".then(r=>r.json()).then(r=>{st.textContent=r.message;st.className=r.success?'ok':'err';";
-  html += "if(r.success)setTimeout(()=>st.textContent='Conectando...',1000);})";
-  html += ".catch(e=>{st.textContent='Erro';st.className='err';});}";
+  html += "if(r.success)setTimeout(()=>{st.textContent='🔄 Reiniciando...';setTimeout(()=>location.reload(),3000);},1000);})";
+  html += ".catch(e=>{st.textContent='❌ Erro: '+e.message;st.className='err';});}";
   html += "</script></body></html>";
   
   server.send(200, "text/html", html);
@@ -971,75 +1000,127 @@ void handleRoot() {
 void handleScan() {
   resetWatchdog();
   
-  // Verificar se temos cache válido (< 60s)
   unsigned long now = millis();
-  bool useCached = (cachedNetworks.length() > 0) && 
-                   ((now - lastScanTime) < SCAN_CACHE_DURATION);
   
-  if (useCached) {
-    logMessage(LOG_INFO, "📡 Usando cache de scan (" + 
-               String((now - lastScanTime) / 1000) + "s atrás)");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
+  // Headers otimizados para manter conexão
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Connection", "keep-alive");
+  server.sendHeader("Keep-Alive", "timeout=5, max=100");
+  server.sendHeader("Cache-Control", "no-cache");
+  
+  // Se temos cache válido e recente, usar
+  bool cacheValid = (cachedNetworks.length() > 0) && 
+                    ((now - lastScanTime) < SCAN_CACHE_DURATION);
+  
+  if (cacheValid && scanState == SCAN_IDLE) {
+    logMessage(LOG_INFO, "📡 Cache válido (" + 
+               String((now - lastScanTime) / 1000) + "s)");
     server.send(200, "application/json", cachedNetworks);
     return;
   }
   
-  // Cache expirou ou vazio - fazer novo scan
-  logMessage(LOG_WARN, "⚠️ Novo scan WiFi - AP pode desconectar brevemente");
-  
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Connection", "close");
-  server.send(200, "application/json", "{\"networks\":[],\"scanning\":true}");
-  
-  // Fazer scan em modo bloqueado mas rápido
-  WiFi.scanDelete();  // Limpar scan anterior
-  resetWatchdog();
-  
-  int n = WiFi.scanNetworks(false, false, false, 300);  // 300ms por canal
-  
-  resetWatchdog();
-  
-  if (n < 0) {
-    logMessage(LOG_ERROR, "Erro no scan WiFi");
-    cachedNetworks = "{\"networks\":[]}";
-    lastScanTime = now;
+  // Estado: IDLE - iniciar novo scan assíncrono
+  if (scanState == SCAN_IDLE) {
+    logMessage(LOG_INFO, "🔍 Iniciando scan assíncrono...");
+    
+    WiFi.scanDelete();
+    
+    // Iniciar scan assíncrono (não bloqueia!)
+    int16_t result = WiFi.scanNetworks(true, false, false, 120);  // async=true, 120ms/canal
+    
+    if (result == WIFI_SCAN_RUNNING) {
+      scanState = SCAN_RUNNING;
+      scanStartTime = now;
+      server.send(202, "application/json", "{\"status\":\"scanning\",\"message\":\"Scan iniciado\"}");
+      logMessage(LOG_INFO, "✅ Scan async iniciado");
+    } else {
+      scanState = SCAN_ERROR;
+      server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Erro ao iniciar scan\"}");
+      logMessage(LOG_ERROR, "❌ Erro ao iniciar scan");
+    }
     return;
   }
   
-  // Limitar a 12 redes mais fortes
-  int maxNetworks = min(n, 12);
-  
-  // Construir JSON em cache
-  String json = "{\"networks\":[";
-  
-  for (int i = 0; i < maxNetworks; i++) {
-    resetWatchdog();
+  // Estado: RUNNING - verificar se completou
+  if (scanState == SCAN_RUNNING) {
+    int16_t n = WiFi.scanComplete();
     
-    if (i > 0) json += ",";
+    // Timeout de segurança
+    if (now - scanStartTime > SCAN_TIMEOUT) {
+      logMessage(LOG_WARN, "⏱️ Scan timeout");
+      WiFi.scanDelete();
+      scanState = SCAN_IDLE;
+      server.send(408, "application/json", "{\"status\":\"timeout\",\"message\":\"Scan timeout. Tente novamente.\"}");
+      return;
+    }
     
-    String ssid = WiFi.SSID(i);
-    ssid.replace("\"", "\\\"");  // Escape aspas
+    if (n == WIFI_SCAN_RUNNING) {
+      // Ainda rodando
+      int elapsed = (now - scanStartTime) / 1000;
+      server.send(202, "application/json", 
+                  "{\"status\":\"scanning\",\"elapsed\":" + String(elapsed) + "}");
+      return;
+    }
     
-    json += "{\"ssid\":\"" + ssid + 
-           "\",\"rssi\":" + String(WiFi.RSSI(i)) + 
-           ",\"encrypted\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") + "}";
+    if (n == WIFI_SCAN_FAILED || n < 0) {
+      logMessage(LOG_ERROR, "❌ Scan falhou");
+      WiFi.scanDelete();
+      scanState = SCAN_IDLE;
+      server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Scan falhou\"}");
+      return;
+    }
+    
+    // Scan completo! Processar resultados
+    logMessage(LOG_INFO, "✅ Scan completo: " + String(n) + " redes");
+    
+    // Limitar a 15 redes mais fortes
+    int maxNetworks = min(n, 15);
+    
+    // Construir JSON
+    String json = "{\"status\":\"complete\",\"networks\":[";
+    
+    for (int i = 0; i < maxNetworks; i++) {
+      if (i > 0) json += ",";
+      
+      String ssid = WiFi.SSID(i);
+      ssid.replace("\"", "\\\"");
+      ssid.replace("\\", "\\\\");
+      
+      json += "{\"ssid\":\"" + ssid + "\"";
+      json += ",\"rssi\":" + String(WiFi.RSSI(i));
+      json += ",\"encrypted\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false");
+      json += ",\"channel\":" + String(WiFi.channel(i));
+      json += "}";
+      
+      resetWatchdog();
+    }
+    
+    json += "]}";
+    
+    // Salvar em cache
+    cachedNetworks = json;
+    lastScanTime = now;
+    scanState = SCAN_IDLE;
+    
+    WiFi.scanDelete();
+    
+    server.send(200, "application/json", json);
+    logMessage(LOG_INFO, "📡 Resultados enviados e cache atualizado");
+    return;
   }
   
-  json += "]}";
-  
+  // Estado: ERROR ou desconhecido - resetar
+  scanState = SCAN_IDLE;
   WiFi.scanDelete();
-  
-  // Salvar em cache
-  cachedNetworks = json;
-  lastScanTime = now;
-  
-  logMessage(LOG_INFO, "✅ Scan completo: " + String(n) + " redes (cache atualizado)");
+  server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Estado inválido\"}");
 }
 
 void handleSave() {
   resetWatchdog();
   
   server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Connection", "keep-alive");
+  server.sendHeader("Keep-Alive", "timeout=5, max=10");
   
   if (!server.hasArg("plain")) {
     server.send(400, "application/json", "{\"success\":false,\"message\":\"Dados inválidos\"}");
@@ -1085,6 +1166,8 @@ void handleStatus() {
   resetWatchdog();
   
   server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Connection", "keep-alive");
+  server.sendHeader("Cache-Control", "no-cache");
   
   String json = "{";
   json += "\"uuid\":\"" + deviceUUID + "\",";
