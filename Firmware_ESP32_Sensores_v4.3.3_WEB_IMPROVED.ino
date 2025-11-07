@@ -942,10 +942,12 @@ void handleRoot() {
   html += "</div>";
   html += "<script>";
   html += "function scan(){";
-  html += "fetch('/scan').then(r=>r.json()).then(d=>{";
+  html += "let btn=event.target;btn.disabled=true;btn.textContent='Escaneando...';";
+  html += "fetch('/scan',{signal:AbortSignal.timeout(30000)}).then(r=>r.json()).then(d=>{";
   html += "let s=document.getElementById('ssid');s.innerHTML='<option value=\"\">Selecione...</option>';";
   html += "d.networks.forEach(n=>{let o=document.createElement('option');o.value=n.ssid;o.text=n.ssid+' ('+n.rssi+')';s.add(o)});";
-  html += "}).catch(e=>alert('Erro ao escanear'));}";
+  html += "btn.disabled=false;btn.textContent='🔍 Escanear WiFi';";
+  html += "}).catch(e=>{alert('Erro ao escanear');btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});}";
   html += "function save(e){e.preventDefault();";
   html += "let d={ssid:document.getElementById('ssid').value,password:document.getElementById('pass').value};";
   html += "let st=document.getElementById('status');st.textContent='Salvando...';st.className='';st.style.display='block';";
@@ -962,8 +964,13 @@ void handleScan() {
   resetWatchdog();
   logMessage(LOG_INFO, "Escaneando WiFi...");
   
+  // Iniciar resposta com chunked encoding
   server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Connection", "close");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
   
+  // Scan assíncrono
   int n = WiFi.scanNetworks(false, false);
   
   while (n == WIFI_SCAN_RUNNING) {
@@ -974,19 +981,37 @@ void handleScan() {
   
   resetWatchdog();
   
-  String json = "{\"networks\":[";
+  // Limitar a 10 redes mais fortes
+  int maxNetworks = min(n, 10);
+  
+  // Enviar abertura do JSON
+  server.sendContent("{\"networks\":[");
+  yield();
   
   if (n > 0) {
-    for (int i = 0; i < n && i < 15; i++) {
-      if (i > 0) json += ",";
-      json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    for (int i = 0; i < maxNetworks; i++) {
+      resetWatchdog();
+      
+      if (i > 0) {
+        server.sendContent(",");
+      }
+      
+      // Enviar cada rede individualmente
+      String network = "{\"ssid\":\"" + WiFi.SSID(i) + 
+                      "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+      server.sendContent(network);
+      
+      // Pequeno delay para não sobrecarregar buffer
+      delay(10);
+      yield();
     }
   }
   
-  json += "]}";
+  // Fechar JSON
+  server.sendContent("]}");
+  server.sendContent("");  // Finalizar chunked
   
   WiFi.scanDelete();
-  server.send(200, "application/json", json);
   
   logMessage(LOG_INFO, "Scan completo: " + String(n) + " redes");
 }
