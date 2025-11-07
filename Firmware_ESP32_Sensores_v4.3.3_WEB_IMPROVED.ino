@@ -1419,9 +1419,6 @@ void setupMQTT() {
   // Otimização de memória SSL - CRÍTICO para ESP32
   logMessage(LOG_INFO, "Memória livre antes SSL: " + String(ESP.getFreeHeap()) + " bytes");
   
-  // Reduzir buffers SSL para economizar memória (padrão é 16KB cada)
-  espClient.setBufferSizes(512, 512);  // RX=512, TX=512 (ao invés de 16384)
-  
   // Desabilitar validação de certificado (economiza ~40KB de RAM)
   espClient.setInsecure();
   
