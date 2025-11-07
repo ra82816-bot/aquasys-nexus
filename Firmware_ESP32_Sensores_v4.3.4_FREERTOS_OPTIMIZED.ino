@@ -1,14 +1,16 @@
 /*
  * ============================================================================
- * AquaSys Nexus - Sensor Module v4.3.3-WEB-IMPROVED
+ * AquaSys Nexus - Sensor Module v4.3.4-FREERTOS-OPTIMIZED
  * ============================================================================
- * VERSÃO COM PORTAL WEB MELHORADO
+ * VERSÃO COM TASK FREERTOS DEDICADA E MONITORAMENTO DE MEMÓRIA
  * 
- * CORREÇÕES NESTA VERSÃO:
- * ✅ Portal captivo simplificado e mais estável
- * ✅ Web server com CORS habilitado
- * ✅ Redirecionamento captive portal melhorado
- * ✅ Leituras de sensores independentes da conexão
+ * MELHORIAS NESTA VERSÃO:
+ * ✅ Task FreeRTOS dedicada para MQTT (10KB stack, Core 1)
+ * ✅ Total isolamento das operações SSL/TLS
+ * ✅ Monitoramento de memória com alertas (threshold 40KB)
+ * ✅ Logs detalhados de heap livre e mínimo
+ * ✅ Gerenciamento dinâmico de BLE mantido
+ * ✅ Portal web otimizado mantido
  * 
  * RECURSOS:
  * ✅ Display OLED 128x64 com navegação por botões
@@ -16,14 +18,15 @@
  * ✅ Calibração interativa de pH e EC via interface OLED
  * ✅ WiFi com modo AP automático e portal captivo
  * ✅ Suporte a 3 redes WiFi com prioridades
- * ✅ BLE Server sempre ativo
- * ✅ MQTT sobre TLS com autenticação dinâmica via Supabase
+ * ✅ BLE Server com desativação inteligente
+ * ✅ MQTT sobre TLS isolado em task dedicada (segurança SSL)
  * ✅ Leitura de sensores: pH, EC, Temp Água, Temp Ar, Umidade
- * ✅ Watchdog robusto (60s)
- * ✅ Logging estruturado
- * ✅ Heartbeat MQTT
+ * ✅ Watchdog robusto (120s) em task e loop principal
+ * ✅ Logging estruturado com níveis
+ * ✅ Heartbeat MQTT automático
  * ✅ UUID único por MAC
  * ✅ NTP sync
+ * ✅ Alertas de memória crítica
  * 
  * AUTOR: HydroSmart Team
  * DATA: 2025-01-11
@@ -78,7 +81,7 @@
 
 // ==================== CONFIGURAÇÕES GERAIS ====================
 // Versão do Firmware
-#define FIRMWARE_VERSION "4.3.3-WEB-IMPROVED"
+#define FIRMWARE_VERSION "4.3.4-FREERTOS-OPTIMIZED"
 #define DEVICE_TYPE "SENSOR"
 
 // Sensores
@@ -276,6 +279,14 @@ unsigned long lastHeartbeat = 0;
 unsigned long lastWdtReset = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastUUIDPrint = 0;
+unsigned long lastMemoryCheck = 0;
+
+// FreeRTOS - Task MQTT
+TaskHandle_t mqttTaskHandle = NULL;
+SemaphoreHandle_t mqttMutex = NULL;
+const uint32_t MQTT_STACK_SIZE = 10240;  // 10KB stack
+const uint32_t MEMORY_CHECK_INTERVAL = 5000;  // Verificar a cada 5s
+const uint32_t MEMORY_ALERT_THRESHOLD = 40960;  // Alertar se heap < 40KB
 
 // Debounce dos Botões
 unsigned long lastDebounce[4] = {0, 0, 0, 0};
@@ -347,6 +358,12 @@ void displayMessage(const char *message);
 void initWatchdog();
 void resetWatchdog();
 
+// Monitoramento de Memória
+void checkMemory();
+
+// FreeRTOS Task
+void mqttTask(void* pvParameters);
+
 // ==================== LOGGING ====================
 void logMessage(LogLevel level, const String& message) {
   if (level < currentLogLevel) return;
@@ -387,7 +404,7 @@ void printUUIDBanner() {
   Serial.println("║  Use este UUID para cadastrar     ║");
   Serial.println("║  o dispositivo no app!             ║");
   Serial.println("║                                    ║");
-  Serial.println("║  Firmware: v4.3.3-WEB-IMPROVED     ║");
+  Serial.println("║  Firmware: v4.3.4-FREERTOS-OPT    ║");
   Serial.println("║  Tipo: SENSOR                      ║");
   Serial.println("╚════════════════════════════════════╝");
   Serial.println();
@@ -1033,7 +1050,7 @@ void handleRoot() {
   uuidHtml += "📱 UUID DO DISPOSITIVO<br>" + deviceUUID + "</div>";
   server.sendContent(uuidHtml);
   
-  server.sendContent("<div class='info'><b>Firmware:</b> 4.3.3-WEB-IMPROVED<br><b>Tipo:</b> SENSOR</div>");
+  server.sendContent("<div class='info'><b>Firmware:</b> 4.3.4-FREERTOS-OPT<br><b>Tipo:</b> SENSOR</div>");
   server.sendContent("<div class='success'>✅ Copie o UUID acima para cadastrar no app!</div>");
   server.sendContent("<button onclick='scan()'>🔍 Escanear WiFi</button>");
   server.sendContent("<form onsubmit='save(event)'>");
@@ -1714,6 +1731,75 @@ void publishDataToBLE() {
   pCharWaterTemp->notify();
 }
 
+// ==================== MONITORAMENTO DE MEMÓRIA ====================
+void checkMemory() {
+  if (millis() - lastMemoryCheck < MEMORY_CHECK_INTERVAL) return;
+  lastMemoryCheck = millis();
+  
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t minFreeHeap = ESP.getMinFreeHeap();
+  
+  // Log detalhado a cada verificação
+  logMessage(LOG_DEBUG, "Heap: " + String(freeHeap) + " bytes | Min: " + String(minFreeHeap) + " bytes");
+  
+  // Alerta crítico se memória baixa
+  if (freeHeap < MEMORY_ALERT_THRESHOLD) {
+    logMessage(LOG_ERROR, "⚠️ ALERTA: Heap livre abaixo de " + String(MEMORY_ALERT_THRESHOLD / 1024) + "KB!");
+    logMessage(LOG_ERROR, "Heap atual: " + String(freeHeap) + " bytes (" + String(freeHeap / 1024) + " KB)");
+    logMessage(LOG_ERROR, "Min heap: " + String(minFreeHeap) + " bytes (" + String(minFreeHeap / 1024) + " KB)");
+    
+    // Informações adicionais para debug
+    logMessage(LOG_ERROR, "WiFi: " + String(wifiConnected ? "ON" : "OFF") + 
+               " | MQTT: " + String(mqttConnected ? "ON" : "OFF") + 
+               " | BLE: " + String(bleActive ? "ON" : "OFF") + 
+               " | AP: " + String(apMode ? "ON" : "OFF"));
+  }
+}
+
+// ==================== FREERTOS - MQTT TASK ====================
+void mqttTask(void* pvParameters) {
+  logMessage(LOG_INFO, "🚀 MQTT Task iniciada no Core " + String(xPortGetCoreID()));
+  logMessage(LOG_INFO, "Stack size: " + String(MQTT_STACK_SIZE) + " bytes");
+  
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(100);  // Loop a cada 100ms
+  
+  for(;;) {
+    // Aguardar próximo ciclo (evita busy-wait)
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    
+    // Só processar MQTT se WiFi conectado e não em modo AP
+    if (wifiConnected && !apMode) {
+      // Proteger acesso ao MQTT client com mutex (se necessário no futuro)
+      // xSemaphoreTake(mqttMutex, portMAX_DELAY);
+      
+      // Tentar reconectar se desconectado
+      if (!mqttConnected) {
+        reconnectMQTT();  // Já tem todos os resets de watchdog internos
+      }
+      
+      // Processar mensagens MQTT se conectado
+      if (mqttConnected) {
+        mqttClient.loop();
+      }
+      
+      // xSemaphoreGive(mqttMutex);
+      
+      // Heartbeat periódico
+      if (mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+        publishHeartbeat();
+        lastHeartbeat = millis();
+      }
+    } else {
+      // Se não conectado ou em AP mode, aguardar mais tempo
+      vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    
+    // Reset watchdog da task (segurança adicional)
+    esp_task_wdt_reset();
+  }
+}
+
 // ==================== SETUP ====================
 void setup() {
   Serial.begin(115200);
@@ -1736,7 +1822,7 @@ void setup() {
   
   // Inicializar OLED
   initOLED();
-  displayMessage("Iniciando...\nAquaSys v4.3.3");
+  displayMessage("Iniciando...\nAquaSys v4.3.4");
   delay(2000);
   resetWatchdog();
   
@@ -1785,16 +1871,49 @@ void setup() {
   resetWatchdog();
   
   logMessage(LOG_INFO, "✅ Sistema pronto!");
+  
+  // Criar task MQTT dedicada (Core 1, stack 10KB, prioridade 5)
+  if (wifiConnected && !apMode) {
+    logMessage(LOG_INFO, "🚀 Criando task MQTT dedicada...");
+    
+    // Criar mutex (opcional, para proteção futura)
+    // mqttMutex = xSemaphoreCreateMutex();
+    
+    BaseType_t taskCreated = xTaskCreatePinnedToCore(
+      mqttTask,              // Função da task
+      "MQTTTask",            // Nome da task
+      MQTT_STACK_SIZE,       // Stack size (10KB)
+      NULL,                  // Parâmetros
+      5,                     // Prioridade (5 = média-alta)
+      &mqttTaskHandle,       // Handle da task
+      1                      // Core 1 (Core 0 é usado por WiFi/BLE)
+    );
+    
+    if (taskCreated == pdPASS) {
+      logMessage(LOG_INFO, "✅ Task MQTT criada com sucesso!");
+      logMessage(LOG_INFO, "Stack: " + String(MQTT_STACK_SIZE) + " bytes | Core: 1 | Prioridade: 5");
+      
+      // Adicionar watchdog para a task
+      esp_task_wdt_add(mqttTaskHandle);
+    } else {
+      logMessage(LOG_ERROR, "❌ Falha ao criar task MQTT!");
+    }
+  }
+  
   displayMessage("Sistema Pronto!");
   delay(2000);
   
   lastSensorRead = millis();
   lastHeartbeat = millis();
+  lastMemoryCheck = millis();
 }
 
 // ==================== LOOP ====================
 void loop() {
   resetWatchdog();  // Reset no início de cada loop
+  
+  // ===== MONITORAMENTO DE MEMÓRIA =====
+  checkMemory();  // Verifica e alerta se heap < 40KB
   
   // ===== MODO AP - Processar requests =====
   if (apMode) {
@@ -1809,18 +1928,9 @@ void loop() {
     resetWatchdog();
   }
   
-  // ===== MQTT - Manter conexão (SOMENTE se não estiver em AP) =====
-  if (wifiConnected && !apMode) {
-    if (!mqttConnected) {
-      reconnectMQTT();  // Já tem timeout e resets internos
-      resetWatchdog();
-    }
-    
-    if (mqttConnected) {
-      mqttClient.loop();
-      resetWatchdog();
-    }
-  }
+  // ===== MQTT - Agora gerenciado pela task dedicada (não processar aqui) =====
+  // A task mqttTask() está rodando em paralelo no Core 1
+  // e cuida de reconnectMQTT(), mqttClient.loop() e publishHeartbeat()
   
   // ===== SENSORES - Ler periodicamente =====
   if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL) {
@@ -1832,13 +1942,6 @@ void loop() {
     }
     
     lastSensorRead = millis();
-    resetWatchdog();
-  }
-  
-  // ===== HEARTBEAT - Publicar periodicamente =====
-  if (mqttConnected && !apMode && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-    publishHeartbeat();
-    lastHeartbeat = millis();
     resetWatchdog();
   }
   
