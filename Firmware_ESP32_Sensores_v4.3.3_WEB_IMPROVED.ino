@@ -93,10 +93,11 @@ DallasTemperature ds18b20(&oneWire);
 
 // Timeouts
 #define WIFI_TIMEOUT 15000
-#define MQTT_TIMEOUT 30000
+#define MQTT_TIMEOUT 10000          // 10s timeout MQTT
+#define MQTT_SOCKET_TIMEOUT 5       // 5s timeout socket
 #define SENSOR_READ_INTERVAL 30000  // 30s
 #define HEARTBEAT_INTERVAL 60000    // 60s
-#define WATCHDOG_TIMEOUT 60         // 60s
+#define WATCHDOG_TIMEOUT 120        // 120s - margem segura
 #define AUTH_TIMEOUT 10000          // 10s
 
 // API Supabase (autenticação dinâmica)
@@ -357,18 +358,19 @@ String generateDeviceUUID() {
 
 // ==================== WATCHDOG ====================
 void initWatchdog() {
-  esp_err_t status = esp_task_wdt_status(NULL);
+  // Desabilitar watchdog anterior se existir
+  esp_task_wdt_deinit();
+  delay(100);
   
-  if (status == ESP_ERR_NOT_FOUND) {
-    esp_task_wdt_config_t wdt_config = {
-      .timeout_ms = WATCHDOG_TIMEOUT * 1000,
-      .idle_core_mask = 0,
-      .trigger_panic = true
-    };
-    esp_task_wdt_init(&wdt_config);
-  }
-  
+  // Configurar novo watchdog
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WATCHDOG_TIMEOUT * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
+  
   logMessage(LOG_INFO, "✅ Watchdog iniciado (" + String(WATCHDOG_TIMEOUT) + "s)");
 }
 
@@ -760,10 +762,15 @@ bool connectWiFi() {
     WiFi.begin(networks[i].ssid, networks[i].password);
     
     unsigned long startTime = millis();
+    int dots = 0;
     while (WiFi.status() != WL_CONNECTED && millis() - startTime < WIFI_TIMEOUT) {
-      resetWatchdog();
+      resetWatchdog();  // Reset a cada 500ms
       delay(500);
       Serial.print(".");
+      dots++;
+      if (dots % 10 == 0) {
+        logMessage(LOG_DEBUG, "Aguardando WiFi... " + String((millis() - startTime) / 1000) + "s");
+      }
     }
     Serial.println();
     
@@ -777,6 +784,11 @@ bool connectWiFi() {
       syncNTP();
       return true;
     }
+    
+    logMessage(LOG_WARN, "⏱️ Timeout WiFi: " + String(networks[i].ssid));
+    WiFi.disconnect();
+    delay(100);
+    resetWatchdog();
   }
   
   wifiConnected = false;
@@ -803,6 +815,9 @@ void checkWiFi() {
 void startAPMode() {
   logMessage(LOG_INFO, "🔶 Iniciando modo AP...");
   
+  // Reset watchdog antes de iniciar
+  resetWatchdog();
+  
   // Parar e desconectar tudo antes
   if (apMode) {
     server.stop();
@@ -811,10 +826,12 @@ void startAPMode() {
   
   WiFi.disconnect(true);
   delay(500);
+  resetWatchdog();
   
   // Configurar modo AP puro
   WiFi.mode(WIFI_AP);
   delay(500);
+  resetWatchdog();
   
   String apSSID = String(AP_SSID_PREFIX) + deviceUUID.substring(4);
   
@@ -824,6 +841,7 @@ void startAPMode() {
   IPAddress subnet(255, 255, 255, 0);
   
   WiFi.softAPConfig(apIP, gateway, subnet);
+  resetWatchdog();
   
   // Iniciar o AP
   bool apStarted = WiFi.softAP(apSSID.c_str(), AP_PASSWORD);
@@ -834,14 +852,17 @@ void startAPMode() {
   }
   
   delay(1000);
+  resetWatchdog();
   
   // Iniciar DNS Server para captive portal
   dnsServer.stop();
   dnsServer.start(DNS_PORT, "*", apIP);
+  resetWatchdog();
   
   // Iniciar Web Server
   setupWebServer();
   server.begin();
+  resetWatchdog();
   
   apMode = true;
   apModeStartTime = millis();
@@ -1189,16 +1210,18 @@ void setupMQTT() {
   }
   
   espClient.setInsecure();
+  espClient.setTimeout(MQTT_SOCKET_TIMEOUT);  // Timeout do socket
   mqttClient.setServer(mqttCreds.broker, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setKeepAlive(60);
-  mqttClient.setSocketTimeout(30);
+  mqttClient.setSocketTimeout(MQTT_SOCKET_TIMEOUT);  // Timeout de operações MQTT
   
-  logMessage(LOG_INFO, "MQTT configurado: " + String(mqttCreds.broker));
+  logMessage(LOG_INFO, "MQTT configurado: " + String(mqttCreds.broker) + " (timeout: " + String(MQTT_SOCKET_TIMEOUT) + "s)");
 }
 
 bool reconnectMQTT() {
-  if (!wifiConnected) return false;
+  // Não tentar MQTT se em modo AP ou sem WiFi
+  if (!wifiConnected || apMode) return false;
   if (mqttClient.connected()) return true;
   if (millis() - lastMqttAttempt < 5000) return false;
   
@@ -1207,16 +1230,27 @@ bool reconnectMQTT() {
   
   logMessage(LOG_INFO, "Conectando MQTT...");
   
-  bool connected = mqttClient.connect(
-    mqttCreds.client_id,
-    mqttCreds.username,
-    mqttCreds.password
-  );
+  unsigned long connectStart = millis();
+  bool connected = false;
+  
+  // Tentar conectar com timeout
+  while (!connected && (millis() - connectStart) < MQTT_TIMEOUT) {
+    connected = mqttClient.connect(
+      mqttCreds.client_id,
+      mqttCreds.username,
+      mqttCreds.password
+    );
+    
+    if (!connected) {
+      delay(100);
+      resetWatchdog();  // Reset durante tentativa
+    }
+  }
   
   if (connected) {
     mqttConnected = true;
     lastMqttSuccess = millis();
-    logMessage(LOG_INFO, "✅ MQTT conectado");
+    logMessage(LOG_INFO, "✅ MQTT conectado em " + String(millis() - connectStart) + "ms");
     
     // Publicar heartbeat imediato
     publishHeartbeat();
@@ -1224,7 +1258,10 @@ bool reconnectMQTT() {
     return true;
   } else {
     mqttConnected = false;
-    logMessage(LOG_ERROR, "❌ MQTT falhou: " + String(mqttClient.state()));
+    logMessage(LOG_ERROR, "❌ MQTT timeout após " + String(millis() - connectStart) + "ms - state: " + String(mqttClient.state()));
+    
+    // Forçar desconexão
+    mqttClient.disconnect();
     
     // Se falhar consistentemente, tentar re-autenticar
     if (millis() - lastMqttSuccess > 300000) {  // 5min
@@ -1400,15 +1437,18 @@ void setup() {
   
   // Inicializar Watchdog
   initWatchdog();
+  resetWatchdog();
   
   // Gerar UUID
   deviceUUID = generateDeviceUUID();
   logMessage(LOG_INFO, "UUID: " + deviceUUID);
+  resetWatchdog();
   
   // Inicializar OLED
   initOLED();
   displayMessage("Iniciando...\nAquaSys v4.3.3");
   delay(2000);
+  resetWatchdog();
   
   // Inicializar botões
   pinMode(BUTTON_UP, INPUT_PULLUP);
@@ -1419,31 +1459,40 @@ void setup() {
   // Inicializar sensores
   dht.begin();
   ds18b20.begin();
+  resetWatchdog();
   
   // Carregar calibração
   loadCalibration();
+  resetWatchdog();
   
   // Carregar config WiFi
   loadWiFiConfig();
+  resetWatchdog();
   
   // Inicializar BLE
   setupBLE();
+  resetWatchdog();
   
   // Tentar conectar WiFi
   displayMessage("Conectando WiFi...");
   if (!connectWiFi()) {
     logMessage(LOG_WARN, "Nenhum WiFi configurado ou conexão falhou");
-    startAPMode();
+    startAPMode();  // Já tem resets de watchdog internos
   } else {
-    // Configurar MQTT
+    // Configurar MQTT (só se conectou WiFi)
+    resetWatchdog();
     authenticateDevice();
+    resetWatchdog();
     setupMQTT();
+    resetWatchdog();
   }
   
   // Leitura inicial de sensores
   displayMessage("Lendo sensores...");
   delay(1000);
+  resetWatchdog();
   readSensors();
+  resetWatchdog();
   
   logMessage(LOG_INFO, "✅ Sistema pronto!");
   displayMessage("Sistema Pronto!");
@@ -1455,27 +1504,31 @@ void setup() {
 
 // ==================== LOOP ====================
 void loop() {
-  resetWatchdog();
+  resetWatchdog();  // Reset no início de cada loop
   
   // ===== MODO AP - Processar requests =====
   if (apMode) {
     dnsServer.processNextRequest();
     server.handleClient();
+    resetWatchdog();  // Reset após processar web requests
   }
   
   // ===== WIFI - Verificar conexão =====
   if (!apMode) {
     checkWiFi();
+    resetWatchdog();
   }
   
-  // ===== MQTT - Manter conexão =====
+  // ===== MQTT - Manter conexão (SOMENTE se não estiver em AP) =====
   if (wifiConnected && !apMode) {
     if (!mqttConnected) {
-      reconnectMQTT();
+      reconnectMQTT();  // Já tem timeout e resets internos
+      resetWatchdog();
     }
     
     if (mqttConnected) {
       mqttClient.loop();
+      resetWatchdog();
     }
   }
   
@@ -1484,17 +1537,19 @@ void loop() {
     readSensors();
     publishDataToBLE();
     
-    if (mqttConnected) {
+    if (mqttConnected && !apMode) {
       publishSensorData();
     }
     
     lastSensorRead = millis();
+    resetWatchdog();
   }
   
   // ===== HEARTBEAT - Publicar periodicamente =====
-  if (mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+  if (mqttConnected && !apMode && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
     publishHeartbeat();
     lastHeartbeat = millis();
+    resetWatchdog();
   }
   
   // ===== INTERFACE - Atualizar display e botões =====
