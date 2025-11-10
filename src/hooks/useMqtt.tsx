@@ -54,6 +54,7 @@ export const useMqtt = () => {
           MQTT_CONFIG.topics.relayStatus,
           'aquasys/relay/status/wifi',
           'aquasys/heartbeat', // ✅ FASE 1: Subscribe em heartbeat
+          'aquasys/+/status', // ✅ PRIORIDADE I.2: Subscribe em LWT (wildcard para todos os dispositivos)
         ];
         
         client.subscribe(topics, { qos: 1 }, (err) => {
@@ -87,6 +88,10 @@ export const useMqtt = () => {
           await saveRelayStatus(data);
         } else if (topic === 'aquasys/heartbeat') {
           await saveDeviceHealth(data);
+        } else if (topic.endsWith('/status')) {
+          // ✅ PRIORIDADE I.2: Processar mensagens de status LWT
+          console.log('📊 Status do dispositivo:', data);
+          // O DeviceStatus.tsx irá processar estas mensagens via lastMessage
         }
       } catch (error) {
         console.error('Erro ao processar mensagem:', error);

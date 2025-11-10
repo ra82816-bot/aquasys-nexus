@@ -89,9 +89,11 @@ DHT dht(DHT_PIN, DHT_TYPE);
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature ds18b20(&oneWire);
 
-// WiFi AP Mode
+// ✅ PRIORIDADE II.2: WiFi AP - Usar build flags ou manter padrão seguro
 #define AP_SSID_PREFIX "AquaSys-SEN-"
-#define AP_PASSWORD "aquasys2024"
+#ifndef AP_PASSWORD
+  #define AP_PASSWORD "aquasys2024"  // ⚠️ MUDAR EM PRODUÇÃO via build_flags
+#endif
 #define AP_TIMEOUT 300000  // 5min
 
 // Timeouts
@@ -103,13 +105,21 @@ DallasTemperature ds18b20(&oneWire);
 #define WATCHDOG_TIMEOUT 120        // 120s - margem segura
 #define AUTH_TIMEOUT 10000          // 10s
 
-// API Supabase (autenticação dinâmica)
-#define SUPABASE_URL "https://oaabtbvwxsjomeeizciq.supabase.co"
-#define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw"
+// ✅ PRIORIDADE II.2: API Supabase - Usar build flags
+#ifndef SUPABASE_URL
+  #define SUPABASE_URL "https://oaabtbvwxsjomeeizciq.supabase.co"  // ⚠️ INJETAR via build_flags
+#endif
+#ifndef SUPABASE_ANON_KEY
+  #define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw"  // ⚠️ INJETAR via build_flags
+#endif
 
-// MQTT Configuration (fallback)
-#define MQTT_BROKER_FALLBACK "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
-#define MQTT_PORT 8883
+// ✅ PRIORIDADE II.2: MQTT Fallback - Usar build flags
+#ifndef MQTT_BROKER_FALLBACK
+  #define MQTT_BROKER_FALLBACK "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"  // ⚠️ INJETAR via build_flags
+#endif
+#ifndef MQTT_PORT
+  #define MQTT_PORT 8883
+#endif
 #define TOPIC_SENSORS_FALLBACK "aquasys/sensors/all"
 #define TOPIC_HEARTBEAT_FALLBACK "aquasys/heartbeat/sensor"
 #define TOPIC_CALIBRATION_FALLBACK "aquasys/calibration/sensor"
@@ -1444,10 +1454,18 @@ bool authenticateDevice() {
   if (!authSuccess) {
     logMessage(LOG_WARN, "⚠️ Autenticação falhou, usando fallback");
     
-    // Usar credenciais fallback
+    // ✅ PRIORIDADE II.2: Usar credenciais fallback via build flags
     strcpy(mqttCreds.broker, MQTT_BROKER_FALLBACK);
-    strcpy(mqttCreds.username, "hydrosmart");
-    strcpy(mqttCreds.password, "Hydro@2024!");
+    #ifndef MQTT_FALLBACK_USER
+      strcpy(mqttCreds.username, "hydrosmart");  // ⚠️ INJETAR via build_flags
+    #else
+      strcpy(mqttCreds.username, MQTT_FALLBACK_USER);
+    #endif
+    #ifndef MQTT_FALLBACK_PASS
+      strcpy(mqttCreds.password, "Hydro@2024!");  // ⚠️ INJETAR via build_flags
+    #else
+      strcpy(mqttCreds.password, MQTT_FALLBACK_PASS);
+    #endif
     deviceUUID.toCharArray(mqttCreds.client_id, 64);
     strcpy(mqttCreds.topic_sensors, TOPIC_SENSORS_FALLBACK);
     strcpy(mqttCreds.topic_heartbeat, TOPIC_HEARTBEAT_FALLBACK);
@@ -1552,6 +1570,29 @@ bool reconnectMQTT() {
   
   resetWatchdog();
   
+  // ✅ PRIORIDADE I.2: Configurar LWT (Last Will and Testament)
+  char lwtTopic[128];
+  snprintf(lwtTopic, sizeof(lwtTopic), "aquasys/%s/status", deviceUUID.c_str());
+  
+  char lwtPayload[128];
+  snprintf(lwtPayload, sizeof(lwtPayload), "{\"status\":\"offline\",\"uuid\":\"%s\",\"type\":\"sensor\"}", deviceUUID.c_str());
+  
+  mqttClient.setWill(lwtTopic, lwtPayload, 1, true); // QoS 1, Retained
+  
+  // ✅ PRIORIDADE III.1: Buffers persistentes para evitar .c_str() temporário
+  char clientIdBuf[64];
+  char usernameBuf[64];
+  char passwordBuf[128];
+  
+  strncpy(clientIdBuf, mqttCreds.client_id, sizeof(clientIdBuf) - 1);
+  clientIdBuf[sizeof(clientIdBuf) - 1] = '\0';
+  
+  strncpy(usernameBuf, mqttCreds.username, sizeof(usernameBuf) - 1);
+  usernameBuf[sizeof(usernameBuf) - 1] = '\0';
+  
+  strncpy(passwordBuf, mqttCreds.password, sizeof(passwordBuf) - 1);
+  passwordBuf[sizeof(passwordBuf) - 1] = '\0';
+  
   unsigned long connectStart = millis();
   bool connected = false;
   
@@ -1562,9 +1603,9 @@ bool reconnectMQTT() {
     resetWatchdog();
     
     connected = mqttClient.connect(
-      mqttCreds.client_id,
-      mqttCreds.username,
-      mqttCreds.password
+      clientIdBuf,
+      usernameBuf,
+      passwordBuf
     );
     
     if (!connected) {
@@ -1578,6 +1619,15 @@ bool reconnectMQTT() {
     lastMqttSuccess = millis();
     logMessage(LOG_INFO, "✅ MQTT conectado em " + String(millis() - connectStart) + "ms");
     logMessage(LOG_INFO, "Heap livre pós-conexão: " + String(ESP.getFreeHeap()) + " bytes");
+    
+    // ✅ PRIORIDADE I.2: Publicar status online após conexão bem-sucedida
+    char onlineTopic[128];
+    snprintf(onlineTopic, sizeof(onlineTopic), "aquasys/%s/status", deviceUUID.c_str());
+    
+    char onlinePayload[128];
+    snprintf(onlinePayload, sizeof(onlinePayload), "{\"status\":\"online\",\"uuid\":\"%s\",\"type\":\"sensor\"}", deviceUUID.c_str());
+    
+    mqttClient.publish(onlineTopic, onlinePayload, 1, true); // QoS 1, Retained
     
     // Publicar heartbeat imediato
     publishHeartbeat();

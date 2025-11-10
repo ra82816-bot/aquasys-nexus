@@ -23,6 +23,7 @@ interface DeviceHealth {
   };
   type: 'sensor' | 'actuator';
   lastSeen: number;
+  status: 'online' | 'offline'; // ✅ PRIORIDADE I.2: Campo de status LWT
 }
 
 export const DeviceStatus = () => {
@@ -30,6 +31,7 @@ export const DeviceStatus = () => {
   const { lastMessage } = useMqttContext();
 
   useEffect(() => {
+    // ✅ PRIORIDADE I.2: Processar heartbeat e LWT status
     if (lastMessage?.topic === 'aquasys/heartbeat') {
       const data = lastMessage.payload;
       
@@ -54,7 +56,8 @@ export const DeviceStatus = () => {
           min_free_heap: data.memory?.min_free_heap || 0
         },
         type: deviceType,
-        lastSeen: Date.now()
+        lastSeen: Date.now(),
+        status: 'online' // Se recebemos heartbeat, está online
       };
 
       setDevices(prev => {
@@ -62,6 +65,42 @@ export const DeviceStatus = () => {
         updated.set(deviceHealth.uuid, deviceHealth);
         return updated;
       });
+    } else if (lastMessage?.topic?.endsWith('/status')) {
+      // ✅ PRIORIDADE I.2: Processar mensagens LWT de status
+      const data = lastMessage.payload;
+      const uuid = data.uuid;
+      const status = data.status as 'online' | 'offline';
+      
+      if (uuid && status) {
+        setDevices(prev => {
+          const updated = new Map(prev);
+          const existing = updated.get(uuid);
+          
+          if (existing) {
+            // Atualizar status do dispositivo existente
+            updated.set(uuid, {
+              ...existing,
+              status,
+              lastSeen: status === 'online' ? Date.now() : existing.lastSeen
+            });
+          } else if (status === 'online') {
+            // Criar entrada mínima para dispositivo novo que ficou online
+            updated.set(uuid, {
+              uuid,
+              firmware: 'unknown',
+              uptime: 0,
+              wifi: { ssid: 'N/A', rssi: 0, reconnects: 0 },
+              mqtt: { connected: true, failed_attempts: 0 },
+              memory: { free_heap: 0, min_free_heap: 0 },
+              type: data.type === 'sensor' ? 'sensor' : 'actuator',
+              lastSeen: Date.now(),
+              status: 'online'
+            });
+          }
+          
+          return updated;
+        });
+      }
     }
   }, [lastMessage]);
 
@@ -143,6 +182,10 @@ export const DeviceStatus = () => {
                       {device.type === 'sensor' ? '📊 Sensor' : '⚡ Atuador'}
                     </Badge>
                     <Badge variant="outline">{device.firmware}</Badge>
+                    {/* ✅ PRIORIDADE I.2: Badge de status LWT */}
+                    <Badge variant={device.status === 'online' ? 'default' : 'destructive'}>
+                      {device.status === 'online' ? '🟢 Online' : '🔴 Offline'}
+                    </Badge>
                   </div>
                 </div>
                 <Badge variant={isHealthy ? 'default' : 'destructive'}>
