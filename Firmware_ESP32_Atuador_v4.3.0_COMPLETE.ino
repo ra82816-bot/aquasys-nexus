@@ -48,7 +48,9 @@ const int RELAY_PINS[8] = {23, 5, 4, 13, 22, 21, 14, 12};
 
 // WiFi AP Mode
 #define AP_SSID_PREFIX "AquaSys-ACT-"
-#define AP_PASSWORD "aquasys2024"
+#ifndef AP_PASSWORD
+  #define AP_PASSWORD "aquasys2024"  // ⚠️ MUDAR EM PRODUÇÃO via build_flags
+#endif
 #define AP_TIMEOUT 300000  // 5min em AP mode antes de tentar WiFi novamente
 
 // Timeouts
@@ -59,13 +61,21 @@ const int RELAY_PINS[8] = {23, 5, 4, 13, 22, 21, 14, 12};
 #define WATCHDOG_TIMEOUT 60       // 60s
 #define AUTH_TIMEOUT 10000        // 10s para autenticação
 
-// ✅ API Supabase (autenticação dinâmica)
-#define SUPABASE_URL "https://oaabtbvwxsjomeeizciq.supabase.co"
-#define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw"
+// ✅ PRIORIDADE II.2: API Supabase - Usar build flags
+#ifndef SUPABASE_URL
+  #define SUPABASE_URL "https://oaabtbvwxsjomeeizciq.supabase.co"  // ⚠️ INJETAR via build_flags
+#endif
+#ifndef SUPABASE_ANON_KEY
+  #define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hYWJ0YnZ3eHNqb21lZWl6Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzNzI4NzEsImV4cCI6MjA3NDk0ODg3MX0.ZcCr9BFJPMNfy409gkK8VucnfXhluX82LJ8f4HI4bPw"  // ⚠️ INJETAR via build_flags
+#endif
 
-// MQTT Configuration (fallback - será substituído por credenciais dinâmicas)
-#define MQTT_BROKER_FALLBACK "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"
-#define MQTT_PORT 8883
+// ✅ PRIORIDADE II.2: MQTT Fallback - Usar build flags
+#ifndef MQTT_BROKER_FALLBACK
+  #define MQTT_BROKER_FALLBACK "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud"  // ⚠️ INJETAR via build_flags
+#endif
+#ifndef MQTT_PORT
+  #define MQTT_PORT 8883
+#endif
 
 // MQTT Topics (fallback - serão substituídos por tópicos dinâmicos)
 #define TOPIC_RELAY_STATUS_FALLBACK "aquasys/relay/status"
@@ -949,17 +959,32 @@ bool authenticateDevice() {
       // Extrair credenciais
       JsonObject mqtt_config = doc["mqtt_config"];
       
+      // ✅ PRIORIDADE III.1: Buffers persistentes com terminação nula garantida
       strncpy(mqttCreds.broker, mqtt_config["broker"] | MQTT_BROKER_FALLBACK, sizeof(mqttCreds.broker) - 1);
-      strncpy(mqttCreds.username, mqtt_config["username"] | deviceUUID.c_str(), sizeof(mqttCreds.username) - 1);
-      strncpy(mqttCreds.password, mqtt_config["password"] | "", sizeof(mqttCreds.password) - 1);
-      strncpy(mqttCreds.client_id, mqtt_config["client_id"] | deviceUUID.c_str(), sizeof(mqttCreds.client_id) - 1);
+      mqttCreds.broker[sizeof(mqttCreds.broker) - 1] = '\0';
       
-      // Tópicos dinâmicos
+      strncpy(mqttCreds.username, mqtt_config["username"] | deviceUUID.c_str(), sizeof(mqttCreds.username) - 1);
+      mqttCreds.username[sizeof(mqttCreds.username) - 1] = '\0';
+      
+      strncpy(mqttCreds.password, mqtt_config["password"] | "", sizeof(mqttCreds.password) - 1);
+      mqttCreds.password[sizeof(mqttCreds.password) - 1] = '\0';
+      
+      strncpy(mqttCreds.client_id, mqtt_config["client_id"] | deviceUUID.c_str(), sizeof(mqttCreds.client_id) - 1);
+      mqttCreds.client_id[sizeof(mqttCreds.client_id) - 1] = '\0';
+      
+      // Tópicos dinâmicos com terminação nula garantida
       JsonObject topics = mqtt_config["topics"];
       strncpy(mqttCreds.topic_sensors, topics["sensors"] | TOPIC_SENSORS_FALLBACK, sizeof(mqttCreds.topic_sensors) - 1);
+      mqttCreds.topic_sensors[sizeof(mqttCreds.topic_sensors) - 1] = '\0';
+      
       strncpy(mqttCreds.topic_relay_status, topics["relay_status"] | TOPIC_RELAY_STATUS_FALLBACK, sizeof(mqttCreds.topic_relay_status) - 1);
+      mqttCreds.topic_relay_status[sizeof(mqttCreds.topic_relay_status) - 1] = '\0';
+      
       strncpy(mqttCreds.topic_relay_command, topics["relay_command"] | TOPIC_RELAY_COMMAND_FALLBACK, sizeof(mqttCreds.topic_relay_command) - 1);
+      mqttCreds.topic_relay_command[sizeof(mqttCreds.topic_relay_command) - 1] = '\0';
+      
       strncpy(mqttCreds.topic_heartbeat, topics["heartbeat"] | TOPIC_HEARTBEAT_FALLBACK, sizeof(mqttCreds.topic_heartbeat) - 1);
+      mqttCreds.topic_heartbeat[sizeof(mqttCreds.topic_heartbeat) - 1] = '\0';
       
       // Tópicos padrão se não fornecidos
       snprintf(mqttCreds.topic_relay_config, sizeof(mqttCreds.topic_relay_config), "aquasys/%s/relay/config", deviceUUID.c_str());

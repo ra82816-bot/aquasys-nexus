@@ -41,7 +41,7 @@ export const useMqtt = () => {
       console.log('✅ MQTT conectado!');
       setIsConnected(true);
       
-      // ✅ CORREÇÃO: Aguardar confirmação de conexão antes de subscrever
+      // ✅ CORREÇÃO: Aguardar confirmação de conexão antes de subscrever (500ms para estabilidade)
       setTimeout(() => {
         if (!client.connected) {
           console.warn('⚠️ Cliente desconectou antes de subscrever');
@@ -66,7 +66,7 @@ export const useMqtt = () => {
             console.log('✅ Inscrito nos tópicos:', topics);
           }
         });
-      }, 100); // Pequeno delay para garantir estabilidade da conexão
+      }, 500); // Delay aumentado para evitar desconexões prematuras
     });
 
     client.on('message', async (topic, payload) => {
