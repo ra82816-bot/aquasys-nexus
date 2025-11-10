@@ -868,7 +868,43 @@ bool authenticateDevice() {
   
   HTTPClient http;
   WiFiClientSecure client;
-  client.setInsecure(); // Para desenvolvimento - em produção use certificado
+  
+  // ✅ PRIORIDADE II.1: Adicionar certificado CA Root do Supabase (Let's Encrypt)
+  const char* supabase_root_ca = \
+    "-----BEGIN CERTIFICATE-----\n" \
+    "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\n" \
+    "-----END CERTIFICATE-----\n";
+  
+  client.setCACert(supabase_root_ca); // ✅ Validação de certificado ativada
+  client.setTimeout(AUTH_TIMEOUT);
   
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
   http.begin(client, url);
@@ -1015,9 +1051,34 @@ void setupMQTT() {
     return;
   }
   
-  // ✅ Configurar WiFiClientSecure otimizado
-  espClient.setInsecure();
-  espClient.setTimeout(20000); // 20s para handshake TLS (antes era padrão ~5s)
+  // ✅ PRIORIDADE II.1: Configurar certificado CA Root (HiveMQ Cloud)
+  // Certificado DigiCert Global Root G2 usado por HiveMQ Cloud
+  const char* mqtt_root_ca = \
+    "-----BEGIN CERTIFICATE-----\n" \
+    "MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh\n" \
+    "MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\n" \
+    "d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH\n" \
+    "MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT\n" \
+    "MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\n" \
+    "b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG\n" \
+    "9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI\n" \
+    "2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx\n" \
+    "1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ\n" \
+    "q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz\n" \
+    "tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ\n" \
+    "vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP\n" \
+    "BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV\n" \
+    "5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY\n" \
+    "1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4\n" \
+    "NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG\n" \
+    "Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91\n" \
+    "8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe\n" \
+    "pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl\n" \
+    "MrY=\n" \
+    "-----END CERTIFICATE-----\n";
+  
+  espClient.setCACert(mqtt_root_ca); // ✅ Validação de certificado ativada
+  espClient.setTimeout(20000); // 20s para handshake TLS
   
   // ✅ Usar broker dinâmico ou fallback
   const char* brokerToUse = mqttCreds.valid ? mqttCreds.broker : MQTT_BROKER_FALLBACK;
@@ -1044,17 +1105,42 @@ bool reconnectMQTT() {
   uint32_t heapBefore = ESP.getFreeHeap();
   logMessage(LOG_INFO, "Heap antes de MQTT: " + String(heapBefore) + " bytes (" + String(heapBefore/1024) + " KB)");
   
-  // ✅ Usar credenciais dinâmicas ou fallback
-  const char* clientIdToUse = mqttCreds.valid ? mqttCreds.client_id : ("aquasys-actuator-" + deviceUUID).c_str();
-  const char* usernameToUse = mqttCreds.valid ? mqttCreds.username : deviceUUID.c_str();
-  const char* passwordToUse = mqttCreds.valid ? mqttCreds.password : "";
+  // ✅ CORREÇÃO SEGURANÇA: Usar buffers persistentes ao invés de c_str() temporário
+  char clientIdBuf[128];
+  char usernameBuf[64];
+  char passwordBuf[128];
   
-  logMessage(LOG_INFO, "Conectando MQTT como: " + String(clientIdToUse));
-  logMessage(LOG_INFO, "Username: " + String(usernameToUse));
+  if (mqttCreds.valid) {
+    strncpy(clientIdBuf, mqttCreds.client_id, sizeof(clientIdBuf) - 1);
+    strncpy(usernameBuf, mqttCreds.username, sizeof(usernameBuf) - 1);
+    strncpy(passwordBuf, mqttCreds.password, sizeof(passwordBuf) - 1);
+  } else {
+    snprintf(clientIdBuf, sizeof(clientIdBuf), "aquasys-actuator-%s", deviceUUID.c_str());
+    strncpy(usernameBuf, deviceUUID.c_str(), sizeof(usernameBuf) - 1);
+    passwordBuf[0] = '\0';
+  }
+  
+  // Garantir terminação nula
+  clientIdBuf[sizeof(clientIdBuf) - 1] = '\0';
+  usernameBuf[sizeof(usernameBuf) - 1] = '\0';
+  passwordBuf[sizeof(passwordBuf) - 1] = '\0';
+  
+  logMessage(LOG_INFO, "Conectando MQTT como: " + String(clientIdBuf));
+  logMessage(LOG_INFO, "Username: " + String(usernameBuf));
   logMessage(LOG_INFO, "Modo: " + String(mqttCreds.valid ? "Autenticado" : "Fallback"));
   
+  // ✅ PRIORIDADE I.2: Configurar Last Will and Testament (LWT)
+  char lwtTopic[128];
+  char lwtPayload[128];
+  snprintf(lwtTopic, sizeof(lwtTopic), "aquasys/%s/status", deviceUUID.c_str());
+  snprintf(lwtPayload, sizeof(lwtPayload), "{\"status\":\"offline\",\"uuid\":\"%s\",\"timestamp\":%lu}", 
+           deviceUUID.c_str(), millis());
+  
+  mqttClient.setWill(lwtTopic, lwtPayload, 1, true); // QoS 1, Retained
+  logMessage(LOG_DEBUG, "LWT configurado: " + String(lwtTopic));
+  
   // ✅ Tentar conexão
-  bool connected = mqttClient.connect(clientIdToUse, usernameToUse, passwordToUse);
+  bool connected = mqttClient.connect(clientIdBuf, usernameBuf, passwordBuf);
   
   // ✅ NOVO: Monitorar heap após tentativa
   uint32_t heapAfter = ESP.getFreeHeap();
@@ -1066,13 +1152,22 @@ bool reconnectMQTT() {
     lastMqttSuccess = millis();
     logMessage(LOG_INFO, "✅ MQTT conectado com sucesso!");
     
-  // ✅ Inscrever em TODOS os tópicos necessários COM CONFIRMAÇÃO
+    // ✅ PRIORIDADE I.2: Publicar status online imediatamente após conexão (sobrescreve LWT offline)
+    char onlineTopic[128];
+    char onlinePayload[128];
+    snprintf(onlineTopic, sizeof(onlineTopic), "aquasys/%s/status", deviceUUID.c_str());
+    snprintf(onlinePayload, sizeof(onlinePayload), "{\"status\":\"online\",\"uuid\":\"%s\",\"timestamp\":%lu}", 
+             deviceUUID.c_str(), millis());
+    mqttClient.publish(onlineTopic, onlinePayload, 1, true); // QoS 1, Retained
+    
+    // ✅ Inscrever em TODOS os tópicos necessários COM CONFIRMAÇÃO
     // Usar tópicos dinâmicos se disponíveis, senão usar fallback
     const char* topicRelayCmd = mqttCreds.valid ? mqttCreds.topic_relay_command : TOPIC_RELAY_COMMAND_FALLBACK;
     const char* topicSensors = mqttCreds.valid ? mqttCreds.topic_sensors : TOPIC_SENSORS_FALLBACK;
     const char* topicRelayConfig = mqttCreds.valid ? mqttCreds.topic_relay_config : TOPIC_RELAY_CONFIG_FALLBACK;
     const char* topicCalibration = mqttCreds.valid ? mqttCreds.topic_calibration : TOPIC_CALIBRATION_FALLBACK;
     
+    // ✅ PRIORIDADE III.2: Padronizar QoS 1 para todos os comandos críticos
     bool sub1 = mqttClient.subscribe(topicRelayCmd, 1);
     bool sub2 = mqttClient.subscribe(topicSensors, 1);
     bool sub3 = mqttClient.subscribe(topicRelayConfig, 1);
@@ -1451,48 +1546,51 @@ void readSensorDataBLE() {
   }
   
   try {
+    // ✅ CORREÇÃO CRÍTICA: Converter de ASCII para float (ao invés de memcpy binário)
+    // O Sensor publica como ASCII, então devemos ler como String e converter
     if (pRemoteCharPH) {
       String value = pRemoteCharPH->readValue().c_str();
-      if (value.length() >= sizeof(float)) {
-        memcpy(&currentSensorData.ph, value.c_str(), sizeof(float));
+      if (value.length() > 0) {
+        currentSensorData.ph = value.toFloat(); // Conversão ASCII → float
       }
     }
     
     if (pRemoteCharEC) {
       String value = pRemoteCharEC->readValue().c_str();
-      if (value.length() >= sizeof(float)) {
-        memcpy(&currentSensorData.ec, value.c_str(), sizeof(float));
+      if (value.length() > 0) {
+        currentSensorData.ec = value.toFloat(); // Conversão ASCII → float
       }
     }
     
     if (pRemoteCharAirTemp) {
       String value = pRemoteCharAirTemp->readValue().c_str();
-      if (value.length() >= sizeof(float)) {
-        memcpy(&currentSensorData.air_temp, value.c_str(), sizeof(float));
+      if (value.length() > 0) {
+        currentSensorData.air_temp = value.toFloat(); // Conversão ASCII → float
       }
     }
     
     if (pRemoteCharHumidity) {
       String value = pRemoteCharHumidity->readValue().c_str();
-      if (value.length() >= sizeof(float)) {
-        memcpy(&currentSensorData.humidity, value.c_str(), sizeof(float));
+      if (value.length() > 0) {
+        currentSensorData.humidity = value.toFloat(); // Conversão ASCII → float
       }
     }
     
     if (pRemoteCharWaterTemp) {
       String value = pRemoteCharWaterTemp->readValue().c_str();
-      if (value.length() >= sizeof(float)) {
-        memcpy(&currentSensorData.water_temp, value.c_str(), sizeof(float));
+      if (value.length() > 0) {
+        currentSensorData.water_temp = value.toFloat(); // Conversão ASCII → float
       }
     }
     
     currentSensorData.valid = true;
     currentSensorData.timestamp = millis();
     
-    logMessage(LOG_DEBUG, "Dados BLE: pH=" + String(currentSensorData.ph) + 
-               " EC=" + String(currentSensorData.ec));
+    logMessage(LOG_DEBUG, "✅ Dados BLE: pH=" + String(currentSensorData.ph, 2) + 
+               " EC=" + String(currentSensorData.ec, 1) + 
+               " Temp=" + String(currentSensorData.water_temp, 1) + "°C");
   } catch (...) {
-    logMessage(LOG_ERROR, "Erro ao ler dados BLE");
+    logMessage(LOG_ERROR, "❌ Erro ao ler dados BLE");
     bleConnected = false;
     pBLEClient->disconnect();
   }
