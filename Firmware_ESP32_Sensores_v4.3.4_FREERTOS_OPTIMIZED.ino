@@ -103,7 +103,7 @@ DallasTemperature ds18b20(&oneWire);
 #define SENSOR_READ_INTERVAL 30000  // 30s
 #define HEARTBEAT_INTERVAL 60000    // 60s
 #define WATCHDOG_TIMEOUT 120        // 120s - margem segura
-#define AUTH_TIMEOUT 10000          // 10s
+#define AUTH_TIMEOUT 15000          // 15s - aumentado para SSL handshake
 
 // ✅ PRIORIDADE II.2: API Supabase - Usar build flags
 #ifndef SUPABASE_URL
@@ -1307,18 +1307,38 @@ bool authenticateDevice() {
   logMessage(LOG_INFO, "🔐 Autenticando dispositivo...");
   logMessage(LOG_DEBUG, "UUID: " + deviceUUID);
   
+  // ✅ Monitorar memória antes da autenticação
+  uint32_t heapBefore = ESP.getFreeHeap();
+  logMessage(LOG_INFO, "Heap livre antes auth: " + String(heapBefore) + " bytes");
+  
   // ✅ Desativar BLE temporariamente para liberar heap
   if (bleActive) {
     logMessage(LOG_DEBUG, "Desativando BLE para auth HTTP...");
     BLEDevice::deinit(true);
     bleActive = false;
-    delay(100);
+    delay(500); // Aguardar liberação completa
+    
+    uint32_t heapAfterBLE = ESP.getFreeHeap();
+    logMessage(LOG_INFO, "Heap após desligar BLE: " + String(heapAfterBLE) + " bytes");
+  }
+  
+  // ✅ Verificar se há memória suficiente (mínimo 40KB)
+  if (ESP.getFreeHeap() < 40000) {
+    logMessage(LOG_ERROR, "❌ Memória insuficiente para auth HTTP!");
+    http.end();
+    return;
   }
   
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
   logMessage(LOG_DEBUG, "URL: " + url);
   
-  http.begin(client, url);
+  // ✅ Configurar cliente SSL com logs detalhados
+  logMessage(LOG_DEBUG, "Configurando SSL...");
+  if (!http.begin(client, url)) {
+    logMessage(LOG_ERROR, "❌ Falha ao iniciar HTTP client!");
+    http.end();
+    return;
+  }
   
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + String(SUPABASE_ANON_KEY));
@@ -1333,9 +1353,15 @@ bool authenticateDevice() {
   
   logMessage(LOG_DEBUG, "Payload: " + payload);
   logMessage(LOG_INFO, "Enviando requisição HTTP POST...");
+  logMessage(LOG_DEBUG, "Heap antes POST: " + String(ESP.getFreeHeap()) + " bytes");
   
+  unsigned long postStart = millis();
   int httpCode = http.POST(payload);
+  unsigned long postDuration = millis() - postStart;
+  
   logMessage(LOG_INFO, "HTTP Code: " + String(httpCode));
+  logMessage(LOG_DEBUG, "Tempo de resposta: " + String(postDuration) + "ms");
+  logMessage(LOG_DEBUG, "Heap após POST: " + String(ESP.getFreeHeap()) + " bytes");
   
   bool authSuccess = false;
   
@@ -1405,9 +1431,18 @@ bool authenticateDevice() {
     }
   } else {
     logMessage(LOG_ERROR, "❌ HTTP Auth falhou: " + String(httpCode));
-    if (httpCode > 0) {
+    
+    // ✅ Diagnóstico detalhado do erro
+    if (httpCode == -1) {
+      logMessage(LOG_ERROR, "Erro -1: Falha na conexão SSL/TLS ou timeout");
+      logMessage(LOG_DEBUG, "Possíveis causas:");
+      logMessage(LOG_DEBUG, "- Certificado SSL inválido");
+      logMessage(LOG_DEBUG, "- Memória heap insuficiente");
+      logMessage(LOG_DEBUG, "- Timeout na conexão (15s)");
+      logMessage(LOG_DEBUG, "- Problema de rede/DNS");
+    } else if (httpCode > 0) {
       String response = http.getString();
-      logMessage(LOG_DEBUG, "Resposta: " + response);
+      logMessage(LOG_DEBUG, "Resposta HTTP: " + response);
     }
   }
   
