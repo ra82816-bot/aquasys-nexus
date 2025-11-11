@@ -1304,7 +1304,20 @@ bool authenticateDevice() {
   client.setCACert(supabase_root_ca); // ✅ Validação de certificado ativada
   client.setTimeout(AUTH_TIMEOUT);
   
+  logMessage(LOG_INFO, "🔐 Autenticando dispositivo...");
+  logMessage(LOG_DEBUG, "UUID: " + deviceUUID);
+  
+  // ✅ Desativar BLE temporariamente para liberar heap
+  if (bleActive) {
+    logMessage(LOG_DEBUG, "Desativando BLE para auth HTTP...");
+    BLEDevice::deinit(true);
+    bleActive = false;
+    delay(100);
+  }
+  
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
+  logMessage(LOG_DEBUG, "URL: " + url);
+  
   http.begin(client, url);
   
   http.addHeader("Content-Type", "application/json");
@@ -1318,35 +1331,83 @@ bool authenticateDevice() {
   String payload;
   serializeJson(doc, payload);
   
+  logMessage(LOG_DEBUG, "Payload: " + payload);
+  logMessage(LOG_INFO, "Enviando requisição HTTP POST...");
+  
   int httpCode = http.POST(payload);
+  logMessage(LOG_INFO, "HTTP Code: " + String(httpCode));
+  
   bool authSuccess = false;
   
   if (httpCode == 200) {
     String response = http.getString();
-    StaticJsonDocument<512> respDoc;
+    StaticJsonDocument<1024> respDoc;
     
     DeserializationError error = deserializeJson(respDoc, response);
     
     if (!error && respDoc["success"] == true) {
-      String broker = respDoc["mqtt_broker"].as<String>();
-      String username = respDoc["mqtt_username"].as<String>();
-      String password = respDoc["mqtt_password"].as<String>();
+      // ✅ Ler dados do objeto mqtt_config
+      JsonObject mqttConfig = respDoc["mqtt_config"];
       
-      broker.toCharArray(mqttCreds.broker, 128);
-      username.toCharArray(mqttCreds.username, 64);
-      password.toCharArray(mqttCreds.password, 128);
-      deviceUUID.toCharArray(mqttCreds.client_id, 64);
-      
-      strcpy(mqttCreds.topic_sensors, "aquasys/sensors/all");
-      strcpy(mqttCreds.topic_heartbeat, "aquasys/heartbeat/sensor");
-      strcpy(mqttCreds.topic_calibration, "aquasys/calibration/sensor");
-      
-      mqttCreds.valid = true;
-      saveMqttCredentials();
-      
-      logMessage(LOG_INFO, "✅ Autenticação OK");
-      isAuthenticated = true;
-      authSuccess = true;
+      if (mqttConfig) {
+        String broker = mqttConfig["broker"].as<String>();
+        String username = mqttConfig["username"].as<String>();
+        String password = mqttConfig["password"].as<String>();
+        String clientId = mqttConfig["client_id"] | deviceUUID;
+        
+        // Copiar para estrutura global (com null-termination)
+        strncpy(mqttCreds.broker, broker.c_str(), 127);
+        mqttCreds.broker[127] = '\0';
+        
+        strncpy(mqttCreds.username, username.c_str(), 63);
+        mqttCreds.username[63] = '\0';
+        
+        strncpy(mqttCreds.password, password.c_str(), 127);
+        mqttCreds.password[127] = '\0';
+        
+        strncpy(mqttCreds.client_id, clientId.c_str(), 63);
+        mqttCreds.client_id[63] = '\0';
+        
+        // Copiar tópicos (com null-termination)
+        JsonObject topics = mqttConfig["topics"];
+        if (topics) {
+          String topicSensors = topics["sensors"] | "aquasys/sensors/all";
+          String topicHeartbeat = topics["heartbeat"] | "aquasys/heartbeat";
+          String topicCalibration = topics["calibration"] | "aquasys/calibration";
+          
+          strncpy(mqttCreds.topic_sensors, topicSensors.c_str(), 127);
+          mqttCreds.topic_sensors[127] = '\0';
+          
+          strncpy(mqttCreds.topic_heartbeat, topicHeartbeat.c_str(), 127);
+          mqttCreds.topic_heartbeat[127] = '\0';
+          
+          strncpy(mqttCreds.topic_calibration, topicCalibration.c_str(), 127);
+          mqttCreds.topic_calibration[127] = '\0';
+        } else {
+          // Fallback para tópicos padrão
+          strcpy(mqttCreds.topic_sensors, "aquasys/sensors/all");
+          strcpy(mqttCreds.topic_heartbeat, "aquasys/heartbeat");
+          strcpy(mqttCreds.topic_calibration, "aquasys/calibration");
+        }
+        
+        mqttCreds.valid = true;
+        saveMqttCredentials();
+        
+        logMessage(LOG_INFO, "✅ Autenticação OK - Broker: " + broker);
+        logMessage(LOG_INFO, "✅ Username: " + username);
+        isAuthenticated = true;
+        authSuccess = true;
+      } else {
+        logMessage(LOG_ERROR, "❌ Resposta sem mqtt_config");
+      }
+    } else {
+      logMessage(LOG_ERROR, "❌ Erro ao parsear JSON auth: " + String(error.c_str()));
+    }
+  } else {
+    logMessage(LOG_ERROR, "❌ HTTP Auth falhou: " + String(httpCode));
+    if (httpCode > 0) {
+      String response = http.getString();
+      logMessage(LOG_DEBUG, "Resposta: " + response);
     }
   }
   
