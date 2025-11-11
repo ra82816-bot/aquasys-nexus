@@ -103,7 +103,8 @@ DallasTemperature ds18b20(&oneWire);
 #define SENSOR_READ_INTERVAL 30000  // 30s
 #define HEARTBEAT_INTERVAL 60000    // 60s
 #define WATCHDOG_TIMEOUT 120        // 120s - margem segura
-#define AUTH_TIMEOUT 15000          // 15s - aumentado para SSL handshake
+#define AUTH_TIMEOUT 30000          // 30s - SSL handshake pode levar tempo
+#define SSL_DEBUG_MODE false        // true = desativa validação SSL (APENAS PARA DEBUG!)
 
 // ✅ PRIORIDADE II.2: API Supabase - Usar build flags
 #ifndef SUPABASE_URL
@@ -1301,11 +1302,18 @@ bool authenticateDevice() {
     "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n" \
     "-----END CERTIFICATE-----\n";
   
-  client.setCACert(supabase_root_ca); // ✅ Validação de certificado ativada
-  client.setTimeout(AUTH_TIMEOUT);
+  // ✅ Configurar SSL
+  if (SSL_DEBUG_MODE) {
+    logMessage(LOG_WARN, "⚠️ MODO DEBUG SSL: Validação de certificado DESATIVADA!");
+    client.setInsecure(); // ⚠️ APENAS PARA DEBUG - NUNCA EM PRODUÇÃO!
+  } else {
+    client.setCACert(supabase_root_ca); // ✅ Validação de certificado ativada
+  }
+  client.setTimeout(AUTH_TIMEOUT / 1000); // Timeout em segundos
   
   logMessage(LOG_INFO, "🔐 Autenticando dispositivo...");
   logMessage(LOG_DEBUG, "UUID: " + deviceUUID);
+  logMessage(LOG_DEBUG, "Timeout SSL: " + String(AUTH_TIMEOUT) + "ms");
   
   // ✅ Monitorar memória antes da autenticação
   uint32_t heapBefore = ESP.getFreeHeap();
@@ -1329,16 +1337,31 @@ bool authenticateDevice() {
     return false;
   }
   
+  // ✅ Teste de conectividade TCP antes do HTTPS
+  String host = "oaabtbvwxsjomeeizciq.supabase.co";
+  int port = 443;
+  
+  logMessage(LOG_DEBUG, "Testando conectividade TCP...");
+  WiFiClient testClient;
+  if (!testClient.connect(host.c_str(), port)) {
+    logMessage(LOG_ERROR, "❌ Falha na conexão TCP para " + host + ":" + String(port));
+    logMessage(LOG_DEBUG, "Verifique firewall/DNS");
+    return false;
+  }
+  testClient.stop();
+  logMessage(LOG_INFO, "✅ Conectividade TCP OK");
+  
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
   logMessage(LOG_DEBUG, "URL: " + url);
   
-  // ✅ Configurar cliente SSL com logs detalhados
-  logMessage(LOG_DEBUG, "Configurando SSL...");
+  // ✅ Configurar cliente HTTPS
+  logMessage(LOG_DEBUG, "Iniciando handshake SSL/TLS...");
   if (!http.begin(client, url)) {
     logMessage(LOG_ERROR, "❌ Falha ao iniciar HTTP client!");
     http.end();
     return false;
   }
+  logMessage(LOG_INFO, "✅ SSL handshake OK");
   
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + String(SUPABASE_ANON_KEY));
@@ -1435,11 +1458,17 @@ bool authenticateDevice() {
     // ✅ Diagnóstico detalhado do erro
     if (httpCode == -1) {
       logMessage(LOG_ERROR, "Erro -1: Falha na conexão SSL/TLS ou timeout");
-      logMessage(LOG_DEBUG, "Possíveis causas:");
-      logMessage(LOG_DEBUG, "- Certificado SSL inválido");
-      logMessage(LOG_DEBUG, "- Memória heap insuficiente");
-      logMessage(LOG_DEBUG, "- Timeout na conexão (15s)");
-      logMessage(LOG_DEBUG, "- Problema de rede/DNS");
+      logMessage(LOG_DEBUG, "Heap atual: " + String(ESP.getFreeHeap()) + " bytes");
+      logMessage(LOG_DEBUG, "Timeout configurado: " + String(AUTH_TIMEOUT) + "ms");
+      
+      if (SSL_DEBUG_MODE) {
+        logMessage(LOG_WARN, "Modo debug SSL ativo - certificado não está sendo validado");
+      }
+      
+      logMessage(LOG_DEBUG, "Próximos passos de diagnóstico:");
+      logMessage(LOG_DEBUG, "1. Ative SSL_DEBUG_MODE = true (linha 107)");
+      logMessage(LOG_DEBUG, "2. Verifique se firewall está bloqueando porta 443");
+      logMessage(LOG_DEBUG, "3. Verifique se NTP está sincronizado (data/hora corretas)");
     } else if (httpCode > 0) {
       String response = http.getString();
       logMessage(LOG_DEBUG, "Resposta HTTP: " + response);
