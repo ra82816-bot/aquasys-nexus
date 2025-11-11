@@ -1337,19 +1337,49 @@ bool authenticateDevice() {
     return false;
   }
   
-  // ✅ Teste de conectividade TCP antes do HTTPS
+  // ✅ Teste de DNS e conectividade TCP antes do HTTPS
   String host = "oaabtbvwxsjomeeizciq.supabase.co";
   int port = 443;
   
+  // ✅ 1. Testar resolução DNS
+  logMessage(LOG_DEBUG, "Resolvendo DNS: " + host);
+  IPAddress serverIP;
+  if (!WiFi.hostByName(host.c_str(), serverIP)) {
+    logMessage(LOG_ERROR, "❌ Falha na resolução DNS para " + host);
+    logMessage(LOG_DEBUG, "DNS Server: " + WiFi.dnsIP().toString());
+    logMessage(LOG_WARN, "⚠️ Tentando usar DNS público (8.8.8.8)...");
+    
+    // Tentar com DNS público Google
+    WiFi.config(WiFi.localIP(), WiFi.gatewayIP(), WiFi.subnetMask(), IPAddress(8, 8, 8, 8));
+    delay(100);
+    
+    if (!WiFi.hostByName(host.c_str(), serverIP)) {
+      logMessage(LOG_ERROR, "❌ Falha DNS mesmo com 8.8.8.8");
+      return false;
+    }
+  }
+  
+  logMessage(LOG_INFO, "✅ DNS OK: " + serverIP.toString());
+  
+  // ✅ 2. Testar conectividade TCP com timeout aumentado
   logMessage(LOG_DEBUG, "Testando conectividade TCP...");
   WiFiClient testClient;
-  if (!testClient.connect(host.c_str(), port)) {
-    logMessage(LOG_ERROR, "❌ Falha na conexão TCP para " + host + ":" + String(port));
-    logMessage(LOG_DEBUG, "Verifique firewall/DNS");
+  testClient.setTimeout(10000); // 10 segundos para conexão TCP
+  
+  uint32_t startConnect = millis();
+  if (!testClient.connect(serverIP, port)) {
+    uint32_t connectDuration = millis() - startConnect;
+    logMessage(LOG_ERROR, "❌ Falha na conexão TCP para " + serverIP.toString() + ":" + String(port));
+    logMessage(LOG_DEBUG, "Tempo de tentativa: " + String(connectDuration) + "ms");
+    logMessage(LOG_DEBUG, "Gateway: " + WiFi.gatewayIP().toString());
+    logMessage(LOG_DEBUG, "Subnet: " + WiFi.subnetMask().toString());
+    logMessage(LOG_WARN, "⚠️ Verifique firewall bloqueando porta 443");
     return false;
   }
+  
+  uint32_t connectDuration = millis() - startConnect;
   testClient.stop();
-  logMessage(LOG_INFO, "✅ Conectividade TCP OK");
+  logMessage(LOG_INFO, "✅ TCP OK (" + String(connectDuration) + "ms)");
   
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
   logMessage(LOG_DEBUG, "URL: " + url);
