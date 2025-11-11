@@ -228,18 +228,6 @@ DNSServer dnsServer;
 unsigned long apModeStartTime = 0;
 const byte DNS_PORT = 53;
 
-// WiFi Scan - Sistema Assíncrono
-enum ScanState {
-  SCAN_IDLE,
-  SCAN_RUNNING,
-  SCAN_COMPLETE,
-  SCAN_ERROR
-};
-
-ScanState scanState = SCAN_IDLE;
-unsigned long scanStartTime = 0;
-const unsigned long SCAN_TIMEOUT = 30000;  // 30s timeout
-
 // MQTT
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
@@ -931,6 +919,15 @@ void checkWiFi() {
 void startAPMode() {
   logMessage(LOG_INFO, "🔶 Iniciando modo AP...");
   
+  // ✅ CORREÇÃO HEAP: Desligar BLE para liberar memória
+  if (bleActive) {
+    logMessage(LOG_WARN, "OTIMIZAÇÃO: Desativando BLE para liberar heap para o WebServer...");
+    BLEDevice::deinit(true); // O 'true' libera a memória
+    bleActive = false;
+    delay(200); // Dar um tempo para a memória ser liberada
+    logMessage(LOG_INFO, "Heap livre após deinit BLE: " + String(ESP.getFreeHeap()));
+  }
+  
   // Reset watchdog antes de iniciar
   resetWatchdog();
   
@@ -1023,192 +1020,94 @@ void setupWebServer() {
 
 void handleRoot() {
   resetWatchdog();
-  
-  // Headers otimizados
-  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  server.sendHeader("Pragma", "no-cache");
-  server.sendHeader("Expires", "0");
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Connection", "keep-alive");
-  server.send(200, "text/html", ""); // Envia headers primeiro com corpo vazio
-  
-  // Enviar HTML em chunks para evitar fragmentação de memória
-  server.sendContent("<!DOCTYPE html><html><head>");
-  server.sendContent("<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  server.sendContent("<title>AquaSys - Config</title>");
-  server.sendContent("<style>");
-  server.sendContent("body{font-family:Arial;margin:0;padding:20px;background:#667eea;color:#fff}");
-  server.sendContent(".box{background:#fff;color:#333;border-radius:10px;padding:20px;max-width:400px;margin:20px auto}");
-  server.sendContent("h1{color:#667eea;margin:0 0 20px 0;font-size:24px}");
-  server.sendContent("input,select,button{width:100%;padding:12px;margin:10px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box;font-size:16px}");
-  server.sendContent("button{background:#667eea;color:#fff;border:none;cursor:pointer;font-weight:bold}");
-  server.sendContent("button:hover{background:#5568d3}");
-  server.sendContent(".info{background:#f0f4ff;padding:10px;border-radius:5px;margin-bottom:15px;font-size:13px}");
-  server.sendContent(".warn{background:#fff3cd;color:#856404;padding:8px;border-radius:5px;margin-bottom:10px;font-size:12px}");
-  server.sendContent(".success{background:#d4edda;color:#155724;padding:8px;border-radius:5px;margin-bottom:10px;font-size:12px}");
-  server.sendContent("#status{margin-top:15px;padding:10px;border-radius:5px;display:none}");
-  server.sendContent(".ok{background:#d4edda;color:#155724}");
-  server.sendContent(".err{background:#f8d7da;color:#721c24}");
-  server.sendContent("</style></head><body>");
-  resetWatchdog();
-  
-  server.sendContent("<div class='box'>");
-  server.sendContent("<h1>🌊 AquaSys Sensor</h1>");
-  
-  // Use String() apenas para formatar o UUID, não para concatenar todo o HTML
-  String uuidHtml = "<div class='warn' style='background:#667eea;color:#fff;font-size:16px;font-weight:bold;text-align:center;padding:15px'>";
-  uuidHtml += "📱 UUID DO DISPOSITIVO<br>" + deviceUUID + "</div>";
-  server.sendContent(uuidHtml);
-  
-  server.sendContent("<div class='info'><b>Firmware:</b> 4.3.4-FREERTOS-OPT<br><b>Tipo:</b> SENSOR</div>");
-  server.sendContent("<div class='success'>✅ Copie o UUID acima para cadastrar no app!</div>");
-  server.sendContent("<button onclick='scan()'>🔍 Escanear WiFi</button>");
-  server.sendContent("<form onsubmit='save(event)'>");
-  server.sendContent("<select id='ssid' required><option value=''>Selecione rede...</option></select>");
-  server.sendContent("<input type='password' id='pass' placeholder='Senha WiFi' required minlength='8'>");
-  server.sendContent("<button type='submit'>💾 Salvar</button>");
-  server.sendContent("</form>");
-  server.sendContent("<div id='status'></div>");
-  server.sendContent("</div>");
-  resetWatchdog();
-  
-  // JavaScript
-  server.sendContent("<script>");
-  server.sendContent("let pollInterval;");
-  server.sendContent("function scan(){");
-  server.sendContent("let btn=event.target;btn.disabled=true;btn.textContent='⏳ Iniciando...';");
-  server.sendContent("fetch('/scan').then(r=>r.json()).then(d=>{");
-  server.sendContent("if(d.status==='complete'){showResults(d.networks);btn.disabled=false;btn.textContent='✅ Escanear WiFi';return;}");
-  server.sendContent("if(d.status==='scanning'){pollScan(btn);return;}");
-  server.sendContent("throw new Error(d.message||'Erro');");
-  server.sendContent("}).catch(e=>{alert('Erro: '+e.message);btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});}");
-  server.sendContent("function pollScan(btn){");
-  server.sendContent("let attempts=0;");
-  server.sendContent("pollInterval=setInterval(()=>{");
-  server.sendContent("attempts++;btn.textContent='🔍 Escaneando ('+attempts+'s)';");
-  server.sendContent("fetch('/scan').then(r=>r.json()).then(d=>{");
-  server.sendContent("if(d.status==='complete'){clearInterval(pollInterval);showResults(d.networks);btn.disabled=false;btn.textContent='✅ Escanear WiFi';}");
-  server.sendContent("else if(d.status==='error'||d.status==='timeout'){clearInterval(pollInterval);throw new Error(d.message);}");
-  server.sendContent("}).catch(e=>{clearInterval(pollInterval);alert('Erro: '+e.message);btn.disabled=false;btn.textContent='🔍 Escanear WiFi';});");
-  server.sendContent("if(attempts>30){clearInterval(pollInterval);alert('Timeout');btn.disabled=false;btn.textContent='🔍 Escanear WiFi';}");
-  server.sendContent("},1000);}");
-  server.sendContent("function showResults(networks){");
-  server.sendContent("let s=document.getElementById('ssid');s.innerHTML='<option value=\"\">Selecione rede...</option>';");
-  server.sendContent("networks.sort((a,b)=>b.rssi-a.rssi);");
-  server.sendContent("networks.forEach(n=>{let o=document.createElement('option');o.value=n.ssid;");
-  server.sendContent("let lock=n.encrypted?'🔒':'🔓';o.text=lock+' '+n.ssid+' ('+n.rssi+'dBm)';s.add(o);});}");
-  server.sendContent("function save(e){e.preventDefault();");
-  server.sendContent("let d={ssid:document.getElementById('ssid').value,password:document.getElementById('pass').value};");
-  server.sendContent("if(!d.ssid){alert('Selecione uma rede');return;}");
-  server.sendContent("let st=document.getElementById('status');st.textContent='💾 Salvando...';st.className='';st.style.display='block';");
-  server.sendContent("fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})");
-  server.sendContent(".then(r=>r.json()).then(r=>{st.textContent=r.message;st.className=r.success?'ok':'err';");
-  server.sendContent("if(r.success)setTimeout(()=>{st.textContent='🔄 Reiniciando...';setTimeout(()=>location.reload(),3000);},1000);})");
-  server.sendContent(".catch(e=>{st.textContent='❌ Erro: '+e.message;st.className='err';});}");
-  server.sendContent("</script></body></html>");
-  server.sendContent(""); // Envia pacote final para fechar a conexão
+  logMessage(LOG_INFO, "Servindo / (handleRoot)");
+
+  // ✅ CORREÇÃO CRASH: HTML/CSS/JS Mínimo e Estável (inline, envio único)
+  char html[2048]; // Buffer grande no stack
+  snprintf(html, sizeof(html), R"rawliteral(
+<!DOCTYPE html><html><head>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>AquaSys Config</title>
+<style>
+  body{font-family:Arial;margin:20px;background:#f4f4f4;}
+  .box{background:#fff;border-radius:10px;padding:20px;max-width:400px;margin:auto;box-shadow:0 0 10px rgba(0,0,0,0.1);}
+  h1{color:#333;font-size:24px;}
+  input,select,button{width:100%%;padding:12px;margin:10px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box;}
+  button{background:#007bff;color:#fff;font-weight:bold;cursor:pointer;}
+  #status{margin-top:15px;padding:10px;border-radius:5px;display:none;}
+  .ok{background:#d4edda;color:#155724;}
+  .err{background:#f8d7da;color:#721c24;}
+</style>
+</head><body>
+<div class='box'>
+  <h1>AquaSys Sensor</h1>
+  <p style='background:#eee;padding:10px;border-radius:5px;'><b>UUID:</b><br>%s</p>
+  <button onclick='scan()'>Escanear WiFi</button>
+  <form onsubmit='save(event)'>
+    <select id='ssid' required><option value=''>Aguardando scan...</option></select>
+    <input type='password' id='pass' placeholder='Senha WiFi' required minlength='8'>
+    <button type='submit'>Salvar</button>
+  </form>
+  <div id='status'></div>
+</div>
+<script>
+  function scan(){
+    let btn=event.target;btn.disabled=true;btn.textContent='Escaneando...';
+    fetch('/scan').then(r=>r.json()).then(d=>{
+      let s=document.getElementById('ssid');s.innerHTML='';
+      d.networks.forEach(n=>{let o=new Option(n.ssid+' ('+n.rssi+'dBm)',n.ssid);s.add(o);});
+      btn.disabled=false;btn.textContent='Escanear WiFi';
+    }).catch(e=>{alert('Erro no scan');btn.disabled=false;btn.textContent='Escanear WiFi';});
+  }
+  function save(e){e.preventDefault();
+    let d={ssid:document.getElementById('ssid').value,password:document.getElementById('pass').value};
+    let st=document.getElementById('status');st.textContent='Salvando...';st.className='';st.style.display='block';
+    fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+    .then(r=>r.json()).then(r=>{st.textContent=r.message;st.className=r.success?'ok':'err';
+    if(r.success)setTimeout(()=>{st.textContent='Reiniciando...';},2000);})
+    .catch(e=>{st.textContent='Erro: '+e.message;st.className='err';});
+  }
+</script></body></html>
+)rawliteral", deviceUUID.c_str());
+
+  // Enviar tudo de uma vez (mais estável)
+  server.send(200, "text/html", html);
 }
 
 void handleScan() {
   resetWatchdog();
-  
-  unsigned long now = millis();
-  
-  // Headers otimizados para manter conexão
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Connection", "keep-alive");
-  server.sendHeader("Keep-Alive", "timeout=5, max=100");
-  server.sendHeader("Cache-Control", "no-cache");
-  
-  // Estado: IDLE - iniciar novo scan assíncrono
-  if (scanState == SCAN_IDLE) {
-    logMessage(LOG_INFO, "🔍 Iniciando scan assíncrono...");
-    
-    WiFi.scanDelete();
-    
-    // Iniciar scan assíncrono (não bloqueia!)
-    int16_t result = WiFi.scanNetworks(true, false, false, 120);  // async=true, 120ms/canal
-    
-    if (result == WIFI_SCAN_RUNNING) {
-      scanState = SCAN_RUNNING;
-      scanStartTime = now;
-      server.send(202, "application/json", "{\"status\":\"scanning\",\"message\":\"Scan iniciado\"}");
-      logMessage(LOG_INFO, "✅ Scan async iniciado");
-    } else {
-      scanState = SCAN_ERROR;
-      server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Erro ao iniciar scan\"}");
-      logMessage(LOG_ERROR, "❌ Erro ao iniciar scan");
-    }
-    return;
-  }
-  
-  // Estado: RUNNING - verificar se completou
-  if (scanState == SCAN_RUNNING) {
-    int16_t n = WiFi.scanComplete();
-    
-    // Timeout de segurança
-    if (now - scanStartTime > SCAN_TIMEOUT) {
-      logMessage(LOG_WARN, "⏱️ Scan timeout");
-      WiFi.scanDelete();
-      scanState = SCAN_IDLE;
-      server.send(408, "application/json", "{\"status\":\"timeout\",\"message\":\"Scan timeout. Tente novamente.\"}");
-      return;
-    }
-    
-    if (n == WIFI_SCAN_RUNNING) {
-      // Ainda rodando
-      int elapsed = (now - scanStartTime) / 1000;
-      server.send(202, "application/json", 
-                  "{\"status\":\"scanning\",\"elapsed\":" + String(elapsed) + "}");
-      return;
-    }
-    
-    if (n == WIFI_SCAN_FAILED || n < 0) {
-      logMessage(LOG_ERROR, "❌ Scan falhou");
-      WiFi.scanDelete();
-      scanState = SCAN_IDLE;
-      server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Scan falhou\"}");
-      return;
-    }
-    
-    // Scan completo! Enviar em streaming (sem cache)
-    logMessage(LOG_INFO, "✅ Scan completo: " + String(n) + " redes");
-    int maxNetworks = min((int)n, 15);
-    
-    server.send(200, "application/json", ""); // Envia headers
-    server.sendContent("{\"status\":\"complete\",\"networks\":[");
-    
-    for (int i = 0; i < maxNetworks; i++) {
-      if (i > 0) server.sendContent(",");
-      
-      String ssid = WiFi.SSID(i);
-      ssid.replace("\"", "\\\"");
-      ssid.replace("\\", "\\\\");
-      
-      // Construir e enviar o JSON de cada rede individualmente
-      String networkJson = "{\"ssid\":\"" + ssid + "\"";
-      networkJson += ",\"rssi\":" + String(WiFi.RSSI(i));
-      networkJson += ",\"encrypted\":" + String(WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false");
-      networkJson += ",\"channel\":" + String(WiFi.channel(i));
-      networkJson += "}";
-      
-      server.sendContent(networkJson);
-      resetWatchdog();
-    }
-    
-    server.sendContent("]}");
-    server.sendContent(""); // Finaliza
-    
-    scanState = SCAN_IDLE;
-    WiFi.scanDelete();
-    logMessage(LOG_INFO, "📡 Resultados enviados (streaming)");
-    return;
-  }
-  
-  // Estado: ERROR ou desconhecido - resetar
-  scanState = SCAN_IDLE;
+  logMessage(LOG_INFO, "Servindo /scan (handleScan Síncrono)");
+
+  // ✅ CORREÇÃO CRASH: Scan SÍNCRONO (bloqueante) para máxima estabilidade
+  logMessage(LOG_INFO, "🔍 Iniciando scan SÍNCRONO...");
+  displayMessage("Escaneando WiFi...");
+
+  // Limpar resultados antigos
   WiFi.scanDelete();
-  server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Estado inválido\"}");
+
+  // WiFi.scanNetworks() síncrono (bloqueia o loop, mas é estável)
+  int n = WiFi.scanNetworks(false, false, false, 300); // async=false
+  resetWatchdog();
+
+  logMessage(LOG_INFO, "✅ Scan síncrono completo: " + String(n) + " redes");
+  displayMessage("Scan completo!");
+
+  // Enviar JSON
+  StaticJsonDocument<1024> doc;
+  JsonArray networks = doc.createNestedArray("networks");
+
+  int maxNetworks = min(n, 15);
+  for (int i = 0; i < maxNetworks; i++) {
+    JsonObject net = networks.createNestedObject();
+    net["ssid"] = WiFi.SSID(i);
+    net["rssi"] = WiFi.RSSI(i);
+  }
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+
+  WiFi.scanDelete();
 }
 
 void handleSave() {
@@ -1570,14 +1469,12 @@ bool reconnectMQTT() {
   
   resetWatchdog();
   
-  // ✅ PRIORIDADE I.2: Configurar LWT (Last Will and Testament)
+  // ✅ CORREÇÃO SINTAXE: Configurar LWT (Last Will and Testament)
   char lwtTopic[128];
   snprintf(lwtTopic, sizeof(lwtTopic), "aquasys/%s/status", deviceUUID.c_str());
   
   char lwtPayload[128];
   snprintf(lwtPayload, sizeof(lwtPayload), "{\"status\":\"offline\",\"uuid\":\"%s\",\"type\":\"sensor\"}", deviceUUID.c_str());
-  
-  mqttClient.setWill(lwtTopic, lwtPayload, 1, true); // QoS 1, Retained
   
   // ✅ PRIORIDADE III.1: Buffers persistentes para evitar .c_str() temporário
   char clientIdBuf[64];
@@ -1602,10 +1499,12 @@ bool reconnectMQTT() {
     delay(100);
     resetWatchdog();
     
+    // ✅ CORREÇÃO: LWT deve ser passado na função connect() (7 parâmetros)
     connected = mqttClient.connect(
       clientIdBuf,
       usernameBuf,
-      passwordBuf
+      passwordBuf,
+      lwtTopic, 1, true, lwtPayload  // LWT: Topic, QoS, Retained, Payload
     );
     
     if (!connected) {
@@ -1620,14 +1519,15 @@ bool reconnectMQTT() {
     logMessage(LOG_INFO, "✅ MQTT conectado em " + String(millis() - connectStart) + "ms");
     logMessage(LOG_INFO, "Heap livre pós-conexão: " + String(ESP.getFreeHeap()) + " bytes");
     
-    // ✅ PRIORIDADE I.2: Publicar status online após conexão bem-sucedida
+    // ✅ CORREÇÃO: Publicar status online após conexão bem-sucedida
     char onlineTopic[128];
     snprintf(onlineTopic, sizeof(onlineTopic), "aquasys/%s/status", deviceUUID.c_str());
     
     char onlinePayload[128];
     snprintf(onlinePayload, sizeof(onlinePayload), "{\"status\":\"online\",\"uuid\":\"%s\",\"type\":\"sensor\"}", deviceUUID.c_str());
     
-    mqttClient.publish(onlineTopic, onlinePayload, 1, true); // QoS 1, Retained
+    // ✅ CORREÇÃO SINTAXE: publish() requer (topic, payload_bytes, length, retained)
+    mqttClient.publish(onlineTopic, (const uint8_t*)onlinePayload, strlen(onlinePayload), true);
     
     // Publicar heartbeat imediato
     publishHeartbeat();
