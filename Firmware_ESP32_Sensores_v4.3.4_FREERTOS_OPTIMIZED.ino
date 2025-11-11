@@ -1309,7 +1309,7 @@ bool authenticateDevice() {
   } else {
     client.setCACert(supabase_root_ca); // ✅ Validação de certificado ativada
   }
-  client.setTimeout(AUTH_TIMEOUT / 1000); // Timeout em segundos
+  client.setTimeout(60); // ✅ AUMENTADO: 60 segundos para handshake SSL
   
   logMessage(LOG_DEBUG, "UUID: " + deviceUUID);
   logMessage(LOG_DEBUG, "Timeout SSL: " + String(AUTH_TIMEOUT) + "ms");
@@ -1406,13 +1406,23 @@ bool authenticateDevice() {
   logMessage(LOG_INFO, "Enviando requisição HTTP POST...");
   logMessage(LOG_DEBUG, "Heap antes POST: " + String(ESP.getFreeHeap()) + " bytes");
   
+  // ✅ Configurar timeout HTTP para 60s (POST pode demorar)
+  http.setTimeout(60000); // 60 segundos
+  
   unsigned long postStart = millis();
+  resetWatchdog(); // ✅ Reset antes do POST
   int httpCode = http.POST(payload);
+  resetWatchdog(); // ✅ Reset após POST
   unsigned long postDuration = millis() - postStart;
   
   logMessage(LOG_INFO, "HTTP Code: " + String(httpCode));
   logMessage(LOG_DEBUG, "Tempo de resposta: " + String(postDuration) + "ms");
   logMessage(LOG_DEBUG, "Heap após POST: " + String(ESP.getFreeHeap()) + " bytes");
+  
+  // ✅ DIAGNÓSTICO DETALHADO: Log da mensagem de erro
+  if (httpCode < 0) {
+    logMessage(LOG_ERROR, "Erro HTTP: " + http.errorToString(httpCode));
+  }
   
   bool authSuccess = false;
   
@@ -1482,21 +1492,36 @@ bool authenticateDevice() {
     }
   } else {
     logMessage(LOG_ERROR, "❌ HTTP Auth falhou: " + String(httpCode));
+    resetWatchdog(); // ✅ Reset após erro
     
     // ✅ Diagnóstico detalhado do erro
     if (httpCode == -1) {
-      logMessage(LOG_ERROR, "Erro -1: Falha na conexão SSL/TLS ou timeout");
+      logMessage(LOG_ERROR, "Erro -1 (TIMEOUT): Conexão SSL/TLS expirou");
       logMessage(LOG_DEBUG, "Heap atual: " + String(ESP.getFreeHeap()) + " bytes");
-      logMessage(LOG_DEBUG, "Timeout configurado: " + String(AUTH_TIMEOUT) + "ms");
+      logMessage(LOG_DEBUG, "Timeout configurado: 60s");
       
       if (SSL_DEBUG_MODE) {
-        logMessage(LOG_WARN, "Modo debug SSL ativo - certificado não está sendo validado");
+        logMessage(LOG_WARN, "SSL_DEBUG_MODE ativo - certificado não validado");
       }
       
-      logMessage(LOG_DEBUG, "Próximos passos de diagnóstico:");
-      logMessage(LOG_DEBUG, "1. Ative SSL_DEBUG_MODE = true (linha 107)");
-      logMessage(LOG_DEBUG, "2. Verifique se firewall está bloqueando porta 443");
-      logMessage(LOG_DEBUG, "3. Verifique se NTP está sincronizado (data/hora corretas)");
+      logMessage(LOG_WARN, "Possíveis causas:");
+      logMessage(LOG_WARN, "1. Servidor Supabase não respondeu em 60s");
+      logMessage(LOG_WARN, "2. Firewall/proxy bloqueando handshake SSL");
+      logMessage(LOG_WARN, "3. Heap insuficiente para SSL (precisa >80KB)");
+    } else if (httpCode == -11) {
+      logMessage(LOG_ERROR, "Erro -11 (CONNECTION_LOST): Conexão perdida durante POST");
+      logMessage(LOG_ERROR, "O servidor fechou a conexão antes de terminar a transferência");
+      logMessage(LOG_DEBUG, "Heap atual: " + String(ESP.getFreeHeap()) + " bytes");
+      logMessage(LOG_DEBUG, "Tempo de POST: " + String(postDuration) + "ms");
+      
+      logMessage(LOG_WARN, "Possíveis causas:");
+      logMessage(LOG_WARN, "1. Timeout do servidor (Supabase Edge Function travou)");
+      logMessage(LOG_WARN, "2. DPI/Firewall corporativo inspecionando HTTPS");
+      logMessage(LOG_WARN, "3. Proxy intermediário fechou conexão");
+      logMessage(LOG_WARN, "4. Payload muito grande ou headers inválidos");
+      logMessage(LOG_WARN, "5. Servidor Supabase sobrecarregado");
+      
+      logMessage(LOG_INFO, "Tentando usar fallback MQTT...");
     } else if (httpCode > 0) {
       String response = http.getString();
       logMessage(LOG_DEBUG, "Resposta HTTP: " + response);
@@ -1505,6 +1530,7 @@ bool authenticateDevice() {
   
   if (!authSuccess) {
     logMessage(LOG_WARN, "⚠️ Autenticação falhou, usando fallback");
+    resetWatchdog(); // ✅ Reset antes do fallback
     
     // ✅ PRIORIDADE II.2: Usar credenciais fallback via build flags
     strcpy(mqttCreds.broker, MQTT_BROKER_FALLBACK);
@@ -1523,9 +1549,13 @@ bool authenticateDevice() {
     strcpy(mqttCreds.topic_heartbeat, TOPIC_HEARTBEAT_FALLBACK);
     strcpy(mqttCreds.topic_calibration, TOPIC_CALIBRATION_FALLBACK);
     mqttCreds.valid = true;
+    
+    logMessage(LOG_INFO, "✅ Fallback configurado: " + String(mqttCreds.broker));
+    resetWatchdog(); // ✅ Reset após fallback
   }
   
   http.end();
+  resetWatchdog(); // ✅ Reset após liberar HTTP
   
   // OTIMIZAÇÃO: Reativar BLE após HTTP
   if (!bleActive && !apMode) {
@@ -2127,10 +2157,16 @@ void loop() {
   
   // ===== MQTT - ✅ SOLUÇÃO 1: Processado no loop principal =====
   if (wifiConnected && !apMode) {
-    // Tentar reconectar se desconectado
+    // Tentar reconectar se desconectado (com limite de frequência)
     if (!mqttConnected) {
-      logMessage(LOG_DEBUG, "[LOOP] Tentando reconectar MQTT...");
-      reconnectMQTT();
+      // Só tentar reconectar se já passaram 5s desde última tentativa
+      if (millis() - lastMqttAttempt >= 5000) {
+        logMessage(LOG_DEBUG, "[LOOP] Tentando reconectar MQTT...");
+        resetWatchdog(); // ✅ Reset antes de reconectar
+        reconnectMQTT();
+        resetWatchdog(); // ✅ Reset após reconectar
+        lastMqttAttempt = millis();
+      }
     } else {
       // Processar mensagens MQTT
       mqttClient.loop();
