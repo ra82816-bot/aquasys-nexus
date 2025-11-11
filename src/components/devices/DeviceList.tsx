@@ -142,16 +142,23 @@ export const DeviceList = () => {
 
   const handleUnpairDevice = async (deviceId: string, deviceUuid: string) => {
     try {
-      const { error } = await supabase
-        .from("device_owners")
-        .delete()
-        .eq("device_id", deviceId);
+      const { data, error } = await supabase.functions.invoke("device-unpair", {
+        body: { device_uuid: deviceUuid },
+      });
 
-      if (error) throw error;
+      if (error) {
+        // Tentar parsear erro da edge function
+        try {
+          const errorData = await error.context?.json();
+          throw new Error(errorData?.error || error.message);
+        } catch {
+          throw error;
+        }
+      }
 
       toast({
         title: "Dispositivo desvinculado",
-        description: `${deviceUuid} foi removido da sua conta`,
+        description: data?.message || `${deviceUuid} foi removido da sua conta`,
       });
 
       // Recarregar lista

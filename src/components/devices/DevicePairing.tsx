@@ -39,29 +39,23 @@ export const DevicePairing = () => {
       if (error) {
         console.log("Error object:", error);
         
-        // Tentar extrair o corpo da resposta de diferentes estruturas possíveis
-        const errorData = (error as any).context || 
-                          (error as any).body || 
-                          (typeof (error as any).message === 'string' ? 
-                            (() => {
-                              try {
-                                return JSON.parse((error as any).message);
-                              } catch {
-                                return null;
-                              }
-                            })() : 
-                            null);
-        
-        console.log("Parsed error data:", errorData);
-        
-        if (errorData?.code === "DEVICE_ALREADY_PAIRED") {
-          toast({
-            title: "Dispositivo já vinculado",
-            description: errorData.error || "Este dispositivo já está vinculado a outra conta",
-            variant: "destructive",
-          });
-          return;
+        // FunctionsHttpError: error.context é um Response object, precisa chamar .json()
+        try {
+          const errorData = await (error as any).context?.json();
+          console.log("Parsed error data:", errorData);
+          
+          if (errorData?.code === "DEVICE_ALREADY_PAIRED") {
+            toast({
+              title: "Dispositivo já vinculado",
+              description: errorData.error || "Este dispositivo já está vinculado a outra conta",
+              variant: "destructive",
+            });
+            return;
+          }
+        } catch (parseError) {
+          console.error("Erro ao parsear resposta de erro:", parseError);
         }
+        
         // Se não for erro de dispositivo já vinculado, mostrar erro genérico
         throw error;
       }

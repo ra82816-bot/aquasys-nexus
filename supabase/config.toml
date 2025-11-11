@@ -33,3 +33,9 @@ verify_jwt = false
 
 [functions.device-auth]
 verify_jwt = false
+
+[functions.device-pair]
+# Requires JWT to identify user
+
+[functions.device-unpair]
+# Requires JWT to identify user
