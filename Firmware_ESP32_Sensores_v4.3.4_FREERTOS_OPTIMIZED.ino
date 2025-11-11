@@ -1326,7 +1326,7 @@ bool authenticateDevice() {
   if (ESP.getFreeHeap() < 40000) {
     logMessage(LOG_ERROR, "❌ Memória insuficiente para auth HTTP!");
     http.end();
-    return;
+    return false;
   }
   
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
@@ -1337,7 +1337,7 @@ bool authenticateDevice() {
   if (!http.begin(client, url)) {
     logMessage(LOG_ERROR, "❌ Falha ao iniciar HTTP client!");
     http.end();
-    return;
+    return false;
   }
   
   http.addHeader("Content-Type", "application/json");
