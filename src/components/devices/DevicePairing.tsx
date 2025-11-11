@@ -37,39 +37,37 @@ export const DevicePairing = () => {
 
       // Verificar erro HTTP (status 409, etc)
       if (error) {
-        // Tentar parsear a mensagem de erro
-        try {
-          const errorData = typeof error === 'string' ? JSON.parse(error) : error;
-          if (errorData.code === "DEVICE_ALREADY_PAIRED") {
-            toast({
-              title: "Dispositivo já vinculado",
-              description: "Este dispositivo já está vinculado a outra conta",
-              variant: "destructive",
-            });
-            return;
-          }
-        } catch {
-          // Se não conseguir parsear, lançar erro original
+        console.log("Error object:", error);
+        
+        // Tentar extrair o corpo da resposta de diferentes estruturas possíveis
+        const errorData = (error as any).context || 
+                          (error as any).body || 
+                          (typeof (error as any).message === 'string' ? 
+                            (() => {
+                              try {
+                                return JSON.parse((error as any).message);
+                              } catch {
+                                return null;
+                              }
+                            })() : 
+                            null);
+        
+        console.log("Parsed error data:", errorData);
+        
+        if (errorData?.code === "DEVICE_ALREADY_PAIRED") {
+          toast({
+            title: "Dispositivo já vinculado",
+            description: errorData.error || "Este dispositivo já está vinculado a outra conta",
+            variant: "destructive",
+          });
+          return;
         }
+        // Se não for erro de dispositivo já vinculado, mostrar erro genérico
         throw error;
       }
 
-      // Verificar erro no data
-      if (data?.error) {
-        if (data.code === "DEVICE_ALREADY_PAIRED") {
-          toast({
-            title: "Dispositivo já vinculado",
-            description: "Este dispositivo já está vinculado a outra conta",
-            variant: "destructive",
-          });
-        } else {
-          throw new Error(data.error);
-        }
-        return;
-      }
-
       // Verificar se já estava vinculado a este usuário
-      if (data.already_paired) {
+      if (data?.already_paired) {
         toast({
           title: "Dispositivo já vinculado",
           description: "Este dispositivo já está na sua conta",
