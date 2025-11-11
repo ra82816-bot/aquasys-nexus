@@ -1600,24 +1600,33 @@ bool reconnectMQTT() {
   lastMqttAttempt = millis();
   resetWatchdog();
   
+  // ✅ LOGS DIAGNÓSTICO: Informações iniciais
+  logMessage(LOG_INFO, "🔌 Iniciando conexão MQTT...");
+  logMessage(LOG_INFO, "Broker: " + String(mqttCreds.broker));
+  logMessage(LOG_INFO, "Port: " + String(mqttCreds.port));
+  logMessage(LOG_INFO, "Username: " + String(mqttCreds.username));
+  logMessage(LOG_DEBUG, "Client ID: " + String(mqttCreds.client_id));
+  
   // OTIMIZAÇÃO CRÍTICA: Desativar BLE para liberar ~30KB de RAM
   if (bleActive) {
-    logMessage(LOG_DEBUG, "Desativando BLE para MQTTS...");
+    logMessage(LOG_DEBUG, "[MQTT] Desativando BLE para liberar heap...");
     BLEDevice::deinit(true); // O 'true' libera a memória
     bleActive = false;
     delay(200); // Dar um tempo para a memória ser liberada
-    logMessage(LOG_DEBUG, "Heap livre após deinit BLE: " + String(ESP.getFreeHeap()));
+    uint32_t heapAfterBLE = ESP.getFreeHeap();
+    logMessage(LOG_INFO, "[MQTT] Heap após desativar BLE: " + String(heapAfterBLE) + " bytes");
   }
   
   // Liberar memória antes de conectar
-  logMessage(LOG_INFO, "🔌 Conectando MQTT...");
   logMessage(LOG_INFO, "Heap livre: " + String(ESP.getFreeHeap()) + " bytes");
   logMessage(LOG_INFO, "Heap min: " + String(ESP.getMinFreeHeap()) + " bytes");
   
   // Desconectar primeiro para liberar recursos
   if (espClient.connected()) {
+    logMessage(LOG_DEBUG, "[MQTT] Parando cliente WiFi anterior...");
     espClient.stop();
     delay(200);
+    logMessage(LOG_DEBUG, "[MQTT] Cliente WiFi parado OK");
   }
   
   resetWatchdog();
@@ -1643,28 +1652,43 @@ bool reconnectMQTT() {
   strncpy(passwordBuf, mqttCreds.password, sizeof(passwordBuf) - 1);
   passwordBuf[sizeof(passwordBuf) - 1] = '\0';
   
+  // ✅ TIMEOUT ABSOLUTO: Máximo 20 segundos para todas as tentativas
+  unsigned long absoluteTimeout = 20000; // 20s
   unsigned long connectStart = millis();
   bool connected = false;
+  int attemptCount = 0;
   
-  // Tentar conectar com timeout reduzido
-  while (!connected && (millis() - connectStart) < MQTT_TIMEOUT) {
-    // Forçar garbage collection
-    delay(100);
-    resetWatchdog();
+  logMessage(LOG_INFO, "[MQTT] Iniciando tentativas de conexão (timeout: 20s)...");
+  
+  // Tentar conectar com timeout absoluto
+  while (!connected && (millis() - connectStart) < absoluteTimeout) {
+    attemptCount++;
+    unsigned long elapsed = millis() - connectStart;
+    
+    resetWatchdog(); // ✅ CRÍTICO: Reset DENTRO do loop
+    
+    logMessage(LOG_DEBUG, "[MQTT] Tentativa #" + String(attemptCount) + " (" + String(elapsed) + "ms)");
     
     // ✅ CORREÇÃO: LWT deve ser passado na função connect() (7 parâmetros)
+    logMessage(LOG_DEBUG, "[MQTT] Chamando mqttClient.connect()...");
     connected = mqttClient.connect(
       clientIdBuf,
       usernameBuf,
       passwordBuf,
       lwtTopic, 1, true, lwtPayload  // LWT: Topic, QoS, Retained, Payload
     );
+    logMessage(LOG_DEBUG, "[MQTT] connect() retornou: " + String(connected ? "true" : "false"));
     
     if (!connected) {
-      delay(200);  // Aumentar delay entre tentativas
+      int state = mqttClient.state();
+      logMessage(LOG_WARN, "[MQTT] Falhou (state=" + String(state) + "), aguardando 500ms...");
+      delay(500);  // Aumentar delay entre tentativas
       resetWatchdog();
     }
   }
+  
+  unsigned long totalTime = millis() - connectStart;
+  logMessage(LOG_INFO, "[MQTT] Fim das tentativas: " + String(attemptCount) + " tentativas em " + String(totalTime) + "ms");
   
   if (connected) {
     mqttConnected = true;
@@ -1920,6 +1944,9 @@ void checkMemory() {
 }
 
 // ==================== FREERTOS - MQTT TASK ====================
+// ✅ SOLUÇÃO 1: Task MQTT removida para diagnóstico
+// A lógica MQTT foi movida de volta para o loop() principal
+/*
 void mqttTask(void* pvParameters) {
   logMessage(LOG_INFO, "🚀 MQTT Task iniciada no Core " + String(xPortGetCoreID()));
   logMessage(LOG_INFO, "Stack size: " + String(MQTT_STACK_SIZE) + " bytes");
@@ -1962,6 +1989,7 @@ void mqttTask(void* pvParameters) {
     esp_task_wdt_reset();
   }
 }
+*/
 
 // ==================== SETUP ====================
 void setup() {
@@ -2035,6 +2063,9 @@ void setup() {
   
   logMessage(LOG_INFO, "✅ Sistema pronto!");
   
+  // ✅ SOLUÇÃO 1: Criação da task MQTT removida para diagnóstico
+  // A lógica MQTT foi movida de volta para o loop() principal
+  /*
   // Criar task MQTT dedicada (Core 1, stack 10KB, prioridade 5)
   if (wifiConnected && !apMode) {
     logMessage(LOG_INFO, "🚀 Criando task MQTT dedicada...");
@@ -2062,6 +2093,9 @@ void setup() {
       logMessage(LOG_ERROR, "❌ Falha ao criar task MQTT!");
     }
   }
+  */
+  
+  logMessage(LOG_INFO, "🔌 Lógica MQTT rodando no loop() principal (diagnóstico)");
   
   displayMessage("Sistema Pronto!");
   delay(2000);
@@ -2091,9 +2125,27 @@ void loop() {
     resetWatchdog();
   }
   
-  // ===== MQTT - Agora gerenciado pela task dedicada (não processar aqui) =====
-  // A task mqttTask() está rodando em paralelo no Core 1
-  // e cuida de reconnectMQTT(), mqttClient.loop() e publishHeartbeat()
+  // ===== MQTT - ✅ SOLUÇÃO 1: Processado no loop principal =====
+  if (wifiConnected && !apMode) {
+    // Tentar reconectar se desconectado
+    if (!mqttConnected) {
+      logMessage(LOG_DEBUG, "[LOOP] Tentando reconectar MQTT...");
+      reconnectMQTT();
+    } else {
+      // Processar mensagens MQTT
+      mqttClient.loop();
+    }
+    
+    resetWatchdog(); // ✅ CRÍTICO: Reset após operações MQTT
+    
+    // Heartbeat periódico
+    if (mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+      logMessage(LOG_DEBUG, "[LOOP] Publicando heartbeat...");
+      publishHeartbeat();
+      lastHeartbeat = millis();
+      resetWatchdog();
+    }
+  }
   
   // ===== SENSORES - Ler periodicamente =====
   if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL) {
