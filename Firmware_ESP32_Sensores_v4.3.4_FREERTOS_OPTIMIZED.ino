@@ -104,7 +104,7 @@ DallasTemperature ds18b20(&oneWire);
 #define HEARTBEAT_INTERVAL 60000    // 60s
 #define WATCHDOG_TIMEOUT 120        // 120s - margem segura
 #define AUTH_TIMEOUT 30000          // 30s - SSL handshake pode levar tempo
-#define SSL_DEBUG_MODE false        // true = desativa validação SSL (APENAS PARA DEBUG!)
+#define SSL_DEBUG_MODE true         // ⚠️ TEMPORÁRIO: Desativa validação SSL para diagnóstico
 
 // ✅ PRIORIDADE II.2: API Supabase - Usar build flags
 #ifndef SUPABASE_URL
@@ -1304,31 +1304,19 @@ bool authenticateDevice() {
   
   // ✅ Configurar SSL
   if (SSL_DEBUG_MODE) {
-    logMessage(LOG_WARN, "⚠️ MODO DEBUG SSL: Validação de certificado DESATIVADA!");
-    client.setInsecure(); // ⚠️ APENAS PARA DEBUG - NUNCA EM PRODUÇÃO!
+    logMessage(LOG_WARN, "⚠️ SSL_DEBUG_MODE ATIVO - Validação de certificado desabilitada!");
+    client.setInsecure(); // ⚠️ APENAS PARA DIAGNÓSTICO
   } else {
     client.setCACert(supabase_root_ca); // ✅ Validação de certificado ativada
   }
   client.setTimeout(AUTH_TIMEOUT / 1000); // Timeout em segundos
   
-  logMessage(LOG_INFO, "🔐 Autenticando dispositivo...");
   logMessage(LOG_DEBUG, "UUID: " + deviceUUID);
   logMessage(LOG_DEBUG, "Timeout SSL: " + String(AUTH_TIMEOUT) + "ms");
   
   // ✅ Monitorar memória antes da autenticação
   uint32_t heapBefore = ESP.getFreeHeap();
   logMessage(LOG_INFO, "Heap livre antes auth: " + String(heapBefore) + " bytes");
-  
-  // ✅ Desativar BLE temporariamente para liberar heap
-  if (bleActive) {
-    logMessage(LOG_DEBUG, "Desativando BLE para auth HTTP...");
-    BLEDevice::deinit(true);
-    bleActive = false;
-    delay(500); // Aguardar liberação completa
-    
-    uint32_t heapAfterBLE = ESP.getFreeHeap();
-    logMessage(LOG_INFO, "Heap após desligar BLE: " + String(heapAfterBLE) + " bytes");
-  }
   
   // ✅ Verificar se há memória suficiente (mínimo 40KB)
   if (ESP.getFreeHeap() < 40000) {
@@ -1362,29 +1350,39 @@ bool authenticateDevice() {
   logMessage(LOG_INFO, "✅ DNS OK: " + serverIP.toString());
   
   // ✅ 2. Testar conectividade TCP com timeout aumentado
-  logMessage(LOG_DEBUG, "Testando conectividade TCP...");
+  logMessage(LOG_DEBUG, "Testando conectividade TCP na porta 443...");
   WiFiClient testClient;
-  testClient.setTimeout(10000); // 10 segundos para conexão TCP
+  testClient.setTimeout(20000); // 20 segundos para conexão TCP
   
   uint32_t startConnect = millis();
-  if (!testClient.connect(serverIP, port)) {
-    uint32_t connectDuration = millis() - startConnect;
-    logMessage(LOG_ERROR, "❌ Falha na conexão TCP para " + serverIP.toString() + ":" + String(port));
-    logMessage(LOG_DEBUG, "Tempo de tentativa: " + String(connectDuration) + "ms");
+  bool tcpSuccess = testClient.connect(serverIP, port);
+  uint32_t connectDuration = millis() - startConnect;
+  
+  if (!tcpSuccess) {
+    logMessage(LOG_ERROR, "❌ Falha TCP 443 para " + serverIP.toString() + " (" + String(connectDuration) + "ms)");
     logMessage(LOG_DEBUG, "Gateway: " + WiFi.gatewayIP().toString());
     logMessage(LOG_DEBUG, "Subnet: " + WiFi.subnetMask().toString());
-    logMessage(LOG_WARN, "⚠️ Verifique firewall bloqueando porta 443");
+    
+    // ✅ Teste alternativo: porta 80 (HTTP) para diagnosticar firewall
+    logMessage(LOG_WARN, "⚠️ Testando porta 80 (HTTP) para diagnóstico...");
+    WiFiClient testHttp;
+    testHttp.setTimeout(10000);
+    if (testHttp.connect(serverIP, 80)) {
+      testHttp.stop();
+      logMessage(LOG_ERROR, "🔥 FIREWALL bloqueando porta 443! Porta 80 funciona.");
+      logMessage(LOG_ERROR, "Solução: Libere porta 443 (HTTPS) no firewall/roteador");
+    } else {
+      logMessage(LOG_ERROR, "❌ Portas 80 e 443 bloqueadas. Problema de rede/firewall severo");
+    }
     return false;
   }
   
-  uint32_t connectDuration = millis() - startConnect;
   testClient.stop();
-  logMessage(LOG_INFO, "✅ TCP OK (" + String(connectDuration) + "ms)");
+  logMessage(LOG_INFO, "✅ TCP 443 OK (" + String(connectDuration) + "ms)");
   
   String url = String(SUPABASE_URL) + "/functions/v1/device-auth";
   logMessage(LOG_DEBUG, "URL: " + url);
   
-  // ✅ Configurar cliente HTTPS
   logMessage(LOG_DEBUG, "Iniciando handshake SSL/TLS...");
   if (!http.begin(client, url)) {
     logMessage(LOG_ERROR, "❌ Falha ao iniciar HTTP client!");
