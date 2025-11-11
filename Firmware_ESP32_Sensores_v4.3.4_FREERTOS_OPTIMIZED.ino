@@ -2137,64 +2137,97 @@ void setup() {
 
 // ==================== LOOP ====================
 void loop() {
+  static unsigned long loopCounter = 0;
+  loopCounter++;
+  
+  // ✅ LOG CRÍTICO: Confirmar que loop está rodando
+  if (loopCounter % 10 == 0) { // Log a cada 10 iterações
+    logMessage(LOG_DEBUG, "🔄 Loop rodando (" + String(loopCounter) + ") - Heap: " + String(ESP.getFreeHeap()));
+  }
+  
   resetWatchdog();  // Reset no início de cada loop
-  
+
   // ===== MONITORAMENTO DE MEMÓRIA =====
+  logMessage(LOG_DEBUG, "→ Antes checkMemory()");
   checkMemory();  // Verifica e alerta se heap < 40KB
-  
+  logMessage(LOG_DEBUG, "← Depois checkMemory()");
+  resetWatchdog();
+
   // ===== MODO AP - Processar requests =====
   if (apMode) {
+    logMessage(LOG_DEBUG, "→ Processando AP mode");
     dnsServer.processNextRequest();
     server.handleClient();
     resetWatchdog();  // Reset após processar web requests
+    logMessage(LOG_DEBUG, "← AP mode OK");
   }
-  
+
   // ===== WIFI - Verificar conexão =====
   if (!apMode) {
+    logMessage(LOG_DEBUG, "→ Antes checkWiFi()");
     checkWiFi();
+    logMessage(LOG_DEBUG, "← Depois checkWiFi()");
     resetWatchdog();
   }
   
   // ===== MQTT - ✅ SOLUÇÃO 1: Processado no loop principal =====
+  logMessage(LOG_DEBUG, "→ Antes de checar MQTT (wifiConnected=" + String(wifiConnected) + ", apMode=" + String(apMode) + ", mqttConnected=" + String(mqttConnected) + ")");
+  
   if (wifiConnected && !apMode) {
+    logMessage(LOG_INFO, "🔌 Entrando na lógica MQTT...");
+    
     // Tentar reconectar se desconectado (com limite de frequência)
     if (!mqttConnected) {
       // Só tentar reconectar se já passaram 5s desde última tentativa
       if (millis() - lastMqttAttempt >= 5000) {
-        logMessage(LOG_DEBUG, "[LOOP] Tentando reconectar MQTT...");
+        logMessage(LOG_INFO, "📡 MQTT desconectado, tentando reconectar...");
+        logMessage(LOG_DEBUG, "→ Antes de reconnectMQTT()");
         resetWatchdog(); // ✅ Reset antes de reconectar
         reconnectMQTT();
         resetWatchdog(); // ✅ Reset após reconectar
         lastMqttAttempt = millis();
+        logMessage(LOG_DEBUG, "← Depois de reconnectMQTT() - Status: " + String(mqttConnected));
+      } else {
+        logMessage(LOG_DEBUG, "⏱️ Aguardando cooldown MQTT (" + String(5000 - (millis() - lastMqttAttempt)) + "ms restantes)");
       }
     } else {
+      logMessage(LOG_DEBUG, "→ Antes de mqttClient.loop()");
       // Processar mensagens MQTT
       mqttClient.loop();
+      logMessage(LOG_DEBUG, "← Depois de mqttClient.loop()");
     }
     
     resetWatchdog(); // ✅ CRÍTICO: Reset após operações MQTT
     
     // Heartbeat periódico
     if (mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-      logMessage(LOG_DEBUG, "[LOOP] Publicando heartbeat...");
+      logMessage(LOG_DEBUG, "→ Publicando heartbeat");
       publishHeartbeat();
       lastHeartbeat = millis();
       resetWatchdog();
+      logMessage(LOG_DEBUG, "← Heartbeat publicado");
     }
+  } else {
+    logMessage(LOG_DEBUG, "⏭️ Pulando lógica MQTT (não conectado ou em AP mode)");
   }
   
   // ===== SENSORES - Ler periodicamente =====
+  logMessage(LOG_DEBUG, "→ Antes de checar sensores");
   if (millis() - lastSensorRead >= SENSOR_READ_INTERVAL) {
+    logMessage(LOG_DEBUG, "📊 Lendo sensores...");
     readSensors();
     publishDataToBLE();
-    
+
     if (mqttConnected && !apMode) {
+      logMessage(LOG_DEBUG, "→ Publicando dados de sensores via MQTT");
       publishSensorData();
+      logMessage(LOG_DEBUG, "← Dados publicados");
     }
-    
+
     lastSensorRead = millis();
     resetWatchdog();
   }
+  logMessage(LOG_DEBUG, "← Depois de checar sensores");
   
   // ===== UUID - Imprimir periodicamente no Serial Monitor =====
   if (millis() - lastUUIDPrint >= 120000) {  // A cada 2 minutos
@@ -2204,8 +2237,14 @@ void loop() {
   }
   
   // ===== INTERFACE - Atualizar display e botões =====
+  logMessage(LOG_DEBUG, "→ Atualizando display");
   updateDisplay();
+  logMessage(LOG_DEBUG, "→ Processando botões");
   handleButtons();
-  
+  logMessage(LOG_DEBUG, "← Interface atualizada");
+
+  resetWatchdog(); // ✅ Reset final do loop
   delay(50);
+  
+  logMessage(LOG_DEBUG, "✅ Loop completo - voltando ao início");
 }
