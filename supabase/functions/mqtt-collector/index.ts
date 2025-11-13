@@ -196,6 +196,36 @@ serve(async (req) => {
       }
 
       console.log('Leituras inseridas com sucesso!');
+
+      // ✅ CRÍTICO: Atualizar status do dispositivo mesmo sem heartbeat dedicado
+      const { data: device } = await supabaseAdmin
+        .from('devices')
+        .select('id')
+        .eq('device_uuid', deviceUuid)
+        .maybeSingle();
+
+      if (device) {
+        // Atualizar last_seen_at (para mostrar como online)
+        await supabaseAdmin
+          .from('devices')
+          .update({ last_seen_at: new Date().toISOString() })
+          .eq('id', device.id);
+
+        // Inserir health básico (para status nas abas Status e Gerenciar)
+        await supabaseAdmin
+          .from('device_health')
+          .insert({
+            device_id: device.id,
+            mqtt_connected: true,
+            sensor_ph_valid: insertData.ph !== undefined,
+            sensor_ec_valid: insertData.ec !== undefined,
+            sensor_temp_valid: insertData.air_temp !== undefined,
+            sensor_humidity_valid: insertData.humidity !== undefined,
+            sensor_water_temp_valid: insertData.water_temp !== undefined,
+          });
+        
+        console.log(`✅ Status online atualizado para ${deviceUuid}`);
+      }
     }
 
     // Processar heartbeat com health data
