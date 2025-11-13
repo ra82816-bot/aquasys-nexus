@@ -142,12 +142,14 @@ serve(async (req) => {
       const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
       console.log('Dados de sensores recebidos:', JSON.stringify(data));
 
-      // Validação: pelo menos um campo válido
+      // Validação: pelo menos um campo válido (suporta snake_case e camelCase)
       const hasValidData = 
         (typeof data.ph === 'number' && !isNaN(data.ph)) ||
         (typeof data.ec === 'number' && !isNaN(data.ec)) ||
+        (typeof data.air_temp === 'number' && !isNaN(data.air_temp)) ||
         (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) ||
         (typeof data.humidity === 'number' && !isNaN(data.humidity)) ||
+        (typeof data.water_temp === 'number' && !isNaN(data.water_temp)) ||
         (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp));
 
       if (!hasValidData) {
@@ -163,14 +165,22 @@ serve(async (req) => {
       if (typeof data.ph === 'number' && !isNaN(data.ph)) insertData.ph = data.ph;
       if (typeof data.ec === 'number' && !isNaN(data.ec)) insertData.ec = data.ec;
       if (typeof data.humidity === 'number' && !isNaN(data.humidity)) insertData.humidity = data.humidity;
-      if (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp)) insertData.water_temp = data.waterTemp;
       
-      // airTemp com fallback para waterTemp
-      if (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) {
-        insertData.air_temp = data.airTemp;
+      // water_temp: suporta snake_case (novo) e camelCase (legado)
+      if (typeof data.water_temp === 'number' && !isNaN(data.water_temp)) {
+        insertData.water_temp = data.water_temp;
       } else if (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp)) {
-        insertData.air_temp = data.waterTemp;
-        console.log('Usando waterTemp como fallback para airTemp');
+        insertData.water_temp = data.waterTemp;
+      }
+      
+      // air_temp: suporta snake_case (novo) e camelCase (legado), com fallback para water_temp
+      if (typeof data.air_temp === 'number' && !isNaN(data.air_temp)) {
+        insertData.air_temp = data.air_temp;
+      } else if (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) {
+        insertData.air_temp = data.airTemp;
+      } else if (insertData.water_temp) {
+        insertData.air_temp = insertData.water_temp;
+        console.log('Usando water_temp como fallback para air_temp');
       }
 
       const { error: insertError } = await supabaseAdmin
