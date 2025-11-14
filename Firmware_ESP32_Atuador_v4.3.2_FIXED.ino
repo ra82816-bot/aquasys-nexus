@@ -467,25 +467,26 @@ void setupWiFi() {
 void startAPMode() {
   apMode = true;
   
-  // ✅ CORREÇÃO: Desconectar WiFi completamente antes de AP
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  delay(1000);
-  
   String apSSID = "AquaSys-" + deviceUUID.substring(4);
   String apPassword = "aquasys123";
   
+  // Inicializar diretamente em modo AP sem tentar deinicializar
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(apSSID.c_str(), apPassword.c_str());
   delay(500);
   
-  IPAddress apIP = WiFi.softAPIP();
-  Serial.printf("[INFO] ✅ AP: %s / %s\n", apSSID.c_str(), apPassword.c_str());
-  Serial.printf("[INFO] ✅ IP: %s\n", apIP.toString().c_str());
-  
-  server.on("/", handleRoot);
-  server.on("/save", HTTP_POST, handleSave);
-  server.begin();
+  if (WiFi.softAP(apSSID.c_str(), apPassword.c_str())) {
+    delay(1000);
+    
+    IPAddress apIP = WiFi.softAPIP();
+    Serial.printf("[INFO] ✅ AP: %s / %s\n", apSSID.c_str(), apPassword.c_str());
+    Serial.printf("[INFO] ✅ IP: %s\n", apIP.toString().c_str());
+    
+    server.on("/", handleRoot);
+    server.on("/save", HTTP_POST, handleSave);
+    server.begin();
+  } else {
+    Serial.println("[ERROR] Falha ao iniciar AP Mode");
+  }
 }
 
 void handleRoot() {
