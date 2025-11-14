@@ -715,13 +715,14 @@ void setupBLE() {
 
 void startBLEScan() {
   Serial.println("[BLE] Escaneando sensores...");
-  BLEScanResults foundDevices = pBLEScan->start(5, false);
+  BLEScanResults* foundDevices = pBLEScan->start(5, false);
   
-  for (int i = 0; i < foundDevices.getCount(); i++) {
-    BLEAdvertisedDevice device = foundDevices.getDevice(i);
+  for (int i = 0; i < foundDevices->getCount(); i++) {
+    BLEAdvertisedDevice device = foundDevices->getDevice(i);
     
-    if (device.haveName() && device.getName().find("AquaSys") != std::string::npos) {
-      Serial.printf("[BLE] Sensor encontrado: %s\n", device.getName().c_str());
+    String deviceName = device.getName().c_str();
+    if (device.haveName() && deviceName.indexOf("AquaSys") != -1) {
+      Serial.printf("[BLE] Sensor encontrado: %s\n", deviceName.c_str());
       connectToSensorBLE(device.getAddress().toString().c_str());
       break;
     }
