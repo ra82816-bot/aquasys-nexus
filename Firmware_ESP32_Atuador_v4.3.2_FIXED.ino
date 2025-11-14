@@ -155,6 +155,7 @@ void generateDeviceUUID();
 void setupRelays();
 void loadConfig();
 void setupWiFi();
+void safeWiFiShutdown();
 bool authenticateDevice();
 void setupNTP();
 void updateNTP();
@@ -223,8 +224,12 @@ void loop() {
     applyFailsafeMode();
   }
   
-  // AP Mode
+  // AP Mode - verificar e recuperar se necessário
   if (apMode) {
+    if (WiFi.getMode() != WIFI_AP) {
+      Serial.println("[WARN] AP Mode perdido, recuperando...");
+      startAPMode();
+    }
     server.handleClient();
     delay(50);
     return;
@@ -458,9 +463,25 @@ void setupWiFi() {
     wifiConnected = true;
     Serial.printf("[INFO] ✅ WiFi OK - IP: %s\n", WiFi.localIP().toString().c_str());
   } else {
-    Serial.println("[ERROR] WiFi falhou - AP Mode");
+    Serial.println("[ERROR] WiFi falhou - Iniciando AP Mode");
+    delay(2000);
+    WiFi.disconnect(true);
+    delay(1000);
     startAPMode();
   }
+}
+
+// ==================== CLEANUP WiFi ====================
+void safeWiFiShutdown() {
+  Serial.println("[INFO] Limpando configuração WiFi...");
+  
+  WiFi.disconnect(true);
+  delay(500);
+  
+  WiFi.mode(WIFI_OFF);
+  delay(500);
+  
+  Serial.println("[INFO] WiFi cleanup completo");
 }
 
 // ==================== AP MODE ====================
@@ -470,22 +491,50 @@ void startAPMode() {
   String apSSID = "AquaSys-" + deviceUUID.substring(4);
   String apPassword = "aquasys123";
   
-  // Inicializar diretamente em modo AP sem tentar deinicializar
-  WiFi.mode(WIFI_AP);
-  delay(500);
+  Serial.println("[INFO] Preparando AP Mode...");
   
-  if (WiFi.softAP(apSSID.c_str(), apPassword.c_str())) {
+  // Limpeza adequada do WiFi
+  safeWiFiShutdown();
+  
+  // Múltiplas tentativas de inicialização
+  int attempts = 0;
+  bool apSuccess = false;
+  
+  while (attempts < 3 && !apSuccess) {
+    Serial.printf("[INFO] Tentativa AP %d/3...\n", attempts + 1);
+    
+    WiFi.mode(WIFI_AP);
     delay(1000);
     
+    if (WiFi.softAP(apSSID.c_str(), apPassword.c_str())) {
+      apSuccess = true;
+      break;
+    }
+    
+    attempts++;
+    if (attempts < 3) {
+      Serial.println("[WARN] Falha, retentando...");
+      delay(2000);
+    }
+  }
+  
+  if (apSuccess) {
+    delay(2000);
+    
     IPAddress apIP = WiFi.softAPIP();
-    Serial.printf("[INFO] ✅ AP: %s / %s\n", apSSID.c_str(), apPassword.c_str());
+    Serial.printf("[INFO] ✅ AP Mode OK: %s\n", apSSID.c_str());
+    Serial.printf("[INFO] ✅ Senha: %s\n", apPassword.c_str());
     Serial.printf("[INFO] ✅ IP: %s\n", apIP.toString().c_str());
     
     server.on("/", handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.begin();
+    
+    Serial.println("[INFO] ✅ Web server iniciado");
   } else {
-    Serial.println("[ERROR] Falha ao iniciar AP Mode");
+    Serial.println("[ERROR] ❌ Todas as tentativas de AP falharam");
+    Serial.println("[INFO] Continuando sem AP Mode (failsafe ativo)");
+    apMode = false;
   }
 }
 
