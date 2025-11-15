@@ -7,6 +7,7 @@ interface MqttContextType {
   lastMessage: MqttMessage | null;
   lastSensorUpdate: number;
   sensorTimeout: boolean;
+  deviceTopics: { sensors: string; relayStatus: string; relayCommand: string; heartbeat: string } | null;
   publish: (topic: string, message: any, options?: any) => Promise<void>;
   publishRelayCommand: (relayIndex: number, command: boolean) => Promise<void>;
   publishRelayConfig: (relayIndex: number, config: any) => Promise<void>;
@@ -30,6 +31,7 @@ export const MqttProvider = ({ children }: { children: ReactNode }) => {
     lastMessage: mqtt.lastMessage ?? null,
     lastSensorUpdate: mqtt.lastSensorUpdate ?? 0,
     sensorTimeout: mqtt.sensorTimeout ?? false,
+    deviceTopics: mqtt.deviceTopics ?? null,
     publish: mqtt.publish,
     publishRelayCommand: mqtt.publishRelayCommand,
     publishRelayConfig: mqtt.publishRelayConfig,

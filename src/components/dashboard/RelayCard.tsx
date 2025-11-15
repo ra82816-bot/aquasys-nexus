@@ -22,36 +22,36 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const [newName, setNewName] = useState(name);
   const [commandStatus, setCommandStatus] = useState<'idle' | 'pending' | 'confirmed'>('idle');
   const { toast } = useToast();
-  const { publishRelayCommand, setRelayAuto, isConnected, lastMessage } = useMqttContext();
+  const { publishRelayCommand, setRelayAuto, isConnected, lastMessage, deviceTopics } = useMqttContext();
 
   // ✅ CONFIRMAÇÃO VISUAL: Detectar confirmação via MQTT
   useEffect(() => {
-    if (commandStatus === 'pending' && lastMessage?.topic === 'aquasys/relay/status') {
+    if (commandStatus === 'pending' && deviceTopics && lastMessage?.topic === deviceTopics.relayStatus) {
       console.log(`🔍 [RelayCard ${relayIndex}] Verificando confirmação:`, {
         payload: lastMessage.payload,
         expectedState: !isOn,
         currentState: isOn
       });
       
-      // ✅ CORREÇÃO: ESP32 envia relay0-relay7
-      const relayKey = `relay${relayIndex}`;
-      const receivedState = lastMessage.payload[relayKey];
-      
-      console.log(`🔍 [RelayCard ${relayIndex}] Estado recebido para ${relayKey}:`, receivedState);
-      
-      if (receivedState !== undefined) {
-        setCommandStatus('confirmed');
-        setIsLoading(false);
+      // Parsing do payload do ESP32 (formato: {relays: [{index: 0, state: true, mode: 0}, ...]})
+      const relays = lastMessage.payload.relays;
+      if (relays && Array.isArray(relays)) {
+        const relayData = relays.find((r: any) => r.index === relayIndex);
         
-        toast({
-          title: "✅ Confirmado",
-          description: `Relé ${relayIndex} respondeu com estado: ${receivedState ? 'LIGADO' : 'DESLIGADO'}`,
-        });
-        
-        setTimeout(() => setCommandStatus('idle'), 2000);
+        if (relayData) {
+          setCommandStatus('confirmed');
+          setIsLoading(false);
+          
+          toast({
+            title: "✅ Confirmado",
+            description: `Relé ${relayIndex + 1} respondeu: ${relayData.state ? 'LIGADO' : 'DESLIGADO'}`,
+          });
+          
+          setTimeout(() => setCommandStatus('idle'), 2000);
+        }
       }
     }
-  }, [lastMessage, commandStatus, relayIndex, isOn, toast]);
+  }, [lastMessage, commandStatus, relayIndex, isOn, toast, deviceTopics]);
 
   const handleToggle = async () => {
     if (!isConnected) {
