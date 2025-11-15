@@ -34,10 +34,11 @@ export const useMqtt = () => {
 
         const { data, error } = await supabase
           .from('device_owners')
-          .select('device_id, devices(device_uuid)')
+          .select('device_id, devices(device_uuid, device_type)')
           .eq('user_id', user.id)
+          .eq('devices.device_type', 'actuator')
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (error) {
           console.error('Erro ao buscar dispositivo:', error);
@@ -46,7 +47,7 @@ export const useMqtt = () => {
 
         if (data && data.devices) {
           const uuid = (data.devices as any).device_uuid;
-          console.log('✅ Device UUID encontrado:', uuid);
+          console.log('✅ Device ATUADOR encontrado:', uuid);
           setDeviceUuid(uuid);
           
           // Configurar tópicos específicos
@@ -512,6 +513,7 @@ export const useMqtt = () => {
     lastMessage,
     lastSensorUpdate,
     sensorTimeout,
+    deviceTopics,
     publish,
     publishRelayCommand,
     publishRelayConfig,

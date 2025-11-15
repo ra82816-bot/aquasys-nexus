@@ -28,36 +28,35 @@ interface DeviceHealth {
 
 export const DeviceStatus = () => {
   const [devices, setDevices] = useState<Map<string, DeviceHealth>>(new Map());
-  const { lastMessage } = useMqttContext();
+  const { lastMessage, deviceTopics } = useMqttContext();
 
   useEffect(() => {
-    // ✅ PRIORIDADE I.2: Processar heartbeat e LWT status
-    if (lastMessage?.topic === 'aquasys/heartbeat') {
+    if (!deviceTopics) return;
+
+    // Processar heartbeat do dispositivo atuador
+    if (lastMessage?.topic === deviceTopics.heartbeat) {
       const data = lastMessage.payload;
       
-      // Determinar tipo de dispositivo pelo UUID ou campo device
-      const deviceType = data.device?.includes('sensor') ? 'sensor' : 'actuator';
-      
       const deviceHealth: DeviceHealth = {
-        uuid: data.device_uuid || data.deviceUUID || 'unknown',
-        firmware: data.firmware || 'unknown',
+        uuid: data.device_uuid || data.device_id || 'unknown',
+        firmware: data.firmware_version || 'unknown',
         uptime: data.uptime || 0,
         wifi: {
           ssid: data.wifi?.ssid || 'N/A',
-          rssi: data.wifi?.rssi || 0,
+          rssi: data.rssi || 0,
           reconnects: data.wifi?.reconnects || 0
         },
         mqtt: {
-          connected: data.mqtt?.connected !== false,
-          failed_attempts: data.mqtt?.failed_attempts || 0
+          connected: true,
+          failed_attempts: 0
         },
         memory: {
-          free_heap: data.memory?.free_heap || 0,
-          min_free_heap: data.memory?.min_free_heap || 0
+          free_heap: data.free_heap || 0,
+          min_free_heap: data.min_free_heap || 0
         },
-        type: deviceType,
+        type: 'actuator',
         lastSeen: Date.now(),
-        status: 'online' // Se recebemos heartbeat, está online
+        status: 'online'
       };
 
       setDevices(prev => {
@@ -65,8 +64,41 @@ export const DeviceStatus = () => {
         updated.set(deviceHealth.uuid, deviceHealth);
         return updated;
       });
-    } else if (lastMessage?.topic?.endsWith('/status')) {
-      // ✅ PRIORIDADE I.2: Processar mensagens LWT de status
+    } 
+    // Usar relay status para inferir que dispositivo está online
+    else if (lastMessage?.topic === deviceTopics.relayStatus) {
+      const data = lastMessage.payload;
+      const uuid = data.device_id || deviceTopics.relayCommand.split('/')[1];
+      
+      setDevices(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(uuid);
+        
+        if (existing) {
+          updated.set(uuid, {
+            ...existing,
+            lastSeen: Date.now(),
+            status: 'online'
+          });
+        } else {
+          updated.set(uuid, {
+            uuid,
+            firmware: 'unknown',
+            uptime: data.timestamp || 0,
+            wifi: { ssid: 'N/A', rssi: 0, reconnects: 0 },
+            mqtt: { connected: true, failed_attempts: 0 },
+            memory: { free_heap: 0, min_free_heap: 0 },
+            type: 'actuator',
+            lastSeen: Date.now(),
+            status: 'online'
+          });
+        }
+        
+        return updated;
+      });
+    }
+    // Processar mensagens LWT de status
+    else if (lastMessage?.topic?.endsWith('/status')) {
       const data = lastMessage.payload;
       const uuid = data.uuid;
       const status = data.status as 'online' | 'offline';
@@ -77,14 +109,12 @@ export const DeviceStatus = () => {
           const existing = updated.get(uuid);
           
           if (existing) {
-            // Atualizar status do dispositivo existente
             updated.set(uuid, {
               ...existing,
               status,
               lastSeen: status === 'online' ? Date.now() : existing.lastSeen
             });
           } else if (status === 'online') {
-            // Criar entrada mínima para dispositivo novo que ficou online
             updated.set(uuid, {
               uuid,
               firmware: 'unknown',
@@ -102,7 +132,7 @@ export const DeviceStatus = () => {
         });
       }
     }
-  }, [lastMessage]);
+  }, [lastMessage, deviceTopics]);
 
   // Remover dispositivos offline (sem heartbeat há mais de 5 minutos)
   useEffect(() => {
