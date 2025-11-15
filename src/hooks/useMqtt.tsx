@@ -16,8 +16,54 @@ export const useMqtt = () => {
   const [lastSensorUpdate, setLastSensorUpdate] = useState<number>(0);
   const [sensorTimeout, setSensorTimeout] = useState(false);
   const [deviceUuid, setDeviceUuid] = useState<string | null>(null);
+  const [deviceTopics, setDeviceTopics] = useState<{
+    sensors: string;
+    relayStatus: string;
+    relayCommand: string;
+    heartbeat: string;
+  } | null>(null);
   const clientRef = useRef<MqttClient | null>(null);
   const { toast } = useToast();
+
+  // ✅ Buscar device_uuid do primeiro dispositivo pareado
+  useEffect(() => {
+    const fetchDeviceUuid = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+          .from('device_owners')
+          .select('device_id, devices(device_uuid)')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+
+        if (error) {
+          console.error('Erro ao buscar dispositivo:', error);
+          return;
+        }
+
+        if (data && data.devices) {
+          const uuid = (data.devices as any).device_uuid;
+          console.log('✅ Device UUID encontrado:', uuid);
+          setDeviceUuid(uuid);
+          
+          // Configurar tópicos específicos
+          setDeviceTopics({
+            sensors: `aquasys/${uuid}/sensors`,
+            relayStatus: `aquasys/${uuid}/relay/status`,
+            relayCommand: `aquasys/${uuid}/relay/command`,
+            heartbeat: `aquasys/${uuid}/heartbeat`,
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao buscar device UUID:', error);
+      }
+    };
+
+    fetchDeviceUuid();
+  }, []);
 
   const connect = useCallback(() => {
     if (clientRef.current?.connected) {
@@ -25,7 +71,13 @@ export const useMqtt = () => {
       return;
     }
 
+    if (!deviceTopics) {
+      console.log('⏳ Aguardando configuração de tópicos...');
+      return;
+    }
+
     console.log('Conectando ao broker MQTT...');
+    console.log('📡 Tópicos configurados:', deviceTopics);
     
     const client = mqtt.connect(MQTT_CONFIG.broker, {
       clientId: MQTT_CONFIG.clientId,
@@ -50,11 +102,10 @@ export const useMqtt = () => {
         
         // Subscribe nos tópicos relevantes
         const topics = [
-          MQTT_CONFIG.topics.sensors,
-          MQTT_CONFIG.topics.relayStatus,
-          'aquasys/relay/status/wifi',
-          'aquasys/heartbeat', // ✅ FASE 1: Subscribe em heartbeat
-          'aquasys/+/status', // ✅ PRIORIDADE I.2: Subscribe em LWT (wildcard para todos os dispositivos)
+          deviceTopics.sensors,
+          deviceTopics.relayStatus,
+          deviceTopics.heartbeat,
+          'aquasys/+/status', // ✅ Wildcard para LWT de qualquer dispositivo
         ];
         
         client.subscribe(topics, { qos: 1 }, (err) => {
@@ -82,16 +133,15 @@ export const useMqtt = () => {
         setLastMessage(message);
 
         // Salvar dados automaticamente no banco via Edge Function
-        if (topic === MQTT_CONFIG.topics.sensors) {
+        if (topic === deviceTopics?.sensors) {
           await saveSensorData(data);
-        } else if (topic === MQTT_CONFIG.topics.relayStatus) {
+        } else if (topic === deviceTopics?.relayStatus) {
           await saveRelayStatus(data);
-        } else if (topic === 'aquasys/heartbeat') {
+        } else if (topic === deviceTopics?.heartbeat) {
           await saveDeviceHealth(data);
         } else if (topic.endsWith('/status')) {
-          // ✅ PRIORIDADE I.2: Processar mensagens de status LWT
+          // ✅ Processar mensagens de status LWT
           console.log('📊 Status do dispositivo:', data);
-          // O DeviceStatus.tsx irá processar estas mensagens via lastMessage
         }
       } catch (error) {
         console.error('Erro ao processar mensagem:', error);
@@ -120,7 +170,7 @@ export const useMqtt = () => {
     });
 
     clientRef.current = client;
-  }, [toast]);
+  }, [toast, deviceTopics]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {
@@ -285,8 +335,8 @@ export const useMqtt = () => {
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
-      if (!deviceUuid) {
-        console.error('❌ Device UUID não disponível');
+      if (!deviceTopics) {
+        console.error('❌ Tópicos MQTT não configurados');
         toast({
           title: "Erro",
           description: "Nenhum dispositivo conectado",
@@ -300,94 +350,78 @@ export const useMqtt = () => {
       console.log('  Device UUID:', deviceUuid);
       console.log('  Relé Index (0-7):', relayIndex);
       console.log('  Estado desejado:', command ? 'LIGADO' : 'DESLIGADO');
-      console.log('  Relé no ESP32:', `relay${relayIndex}`);
-      console.log('  Relé no banco:', `relay${relayIndex + 1}_*`);
 
-      // ✅ relayIndex já vem como 0-7 do RelayCard
       const message = {
-        relay: relayIndex, // Índice 0-7 direto do banco
+        relay: relayIndex,
         state: command
       };
 
-      // ✅ Publicar no tópico específico do dispositivo
-      const deviceTopic = `aquasys/${deviceUuid}/relay/command`;
-      console.log(`📡 Tópico MQTT: ${deviceTopic}`);
+      console.log(`📡 Tópico MQTT: ${deviceTopics.relayCommand}`);
       console.log('📦 Payload MQTT:', JSON.stringify(message));
       
       try {
-        await publish(deviceTopic, message);
+        await publish(deviceTopics.relayCommand, message);
         
         // Registrar no event_logs para auditoria
         await supabase.from('event_logs').insert({
           type: 'relay_command',
           message: `Relé ${relayIndex} → ${command ? 'LIGADO' : 'DESLIGADO'}`,
-          metadata: { 
-            device_uuid: deviceUuid, 
-            relay_index: relayIndex, 
-            command, 
-            mqtt_topic: deviceTopic,
-            timestamp: new Date().toISOString() 
-          }
         });
         
-        console.log(`✅ Comando publicado para ${deviceTopic}`);
+        console.log(`✅ Comando publicado para ${deviceTopics.relayCommand}`);
       } catch (error) {
         console.error('❌ Erro ao publicar comando de relé:', error);
         throw error;
       }
     },
-    [publish, deviceUuid, toast]
+    [publish, deviceUuid, deviceTopics, toast]
   );
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
-      if (!deviceUuid) {
-        console.error('❌ Device UUID não disponível');
+      if (!deviceTopics) {
+        console.error('❌ Tópicos MQTT não configurados');
         return;
       }
 
-      // ✅ CORREÇÃO: Enviar config na raiz do JSON (não aninhado)
       const message = {
-        relay: relayIndex, // Índice 0-7 direto
-        ...config // Spread dos parâmetros na raiz
+        relay: relayIndex,
+        ...config
       };
 
-      const deviceTopic = `aquasys/${deviceUuid}/relay/config`;
-      console.log(`📤 Enviando configuração para ${deviceUuid}, relé ${relayIndex + 1}:`, message);
+      console.log(`📤 Enviando configuração para relé ${relayIndex}:`, message);
       try {
-        await publish(deviceTopic, message);
+        await publish(`${deviceTopics.relayCommand.replace('/command', '/config')}`, message);
         console.log('✅ Configuração enviada com sucesso');
       } catch (error) {
         console.error('❌ Erro ao enviar configuração:', error);
         throw error;
       }
     },
-    [publish, deviceUuid]
+    [publish, deviceTopics]
   );
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
-      if (!deviceUuid) {
-        console.error('❌ Device UUID não disponível');
+      if (!deviceTopics) {
+        console.error('❌ Tópicos MQTT não configurados');
         return;
       }
 
-      // ✅ relayIndex já vem como 0-7 do componente
       const message = {
-        auto: relayIndex // Índice 0-7 direto
+        auto: relayIndex
       };
 
-      const deviceTopic = `aquasys/${deviceUuid}/relay/command`;
-      console.log(`📤 Definindo modo automático para ${deviceUuid}, relé ${relayIndex + 1}`);
+      console.log(`📤 Definindo modo automático para relé ${relayIndex}`);
       try {
-        await publish(deviceTopic, message);
+        await publish(deviceTopics.relayCommand, message);
         console.log('✅ Modo automático definido com sucesso');
       } catch (error) {
         console.error('❌ Erro ao definir modo auto:', error);
         throw error;
       }
     },
-    [publish, deviceUuid]
+    [publish, deviceTopics]
   );
 
   // ✅ VALIDAÇÃO DE TIMEOUT DE DADOS (Prioridade ALTA)
@@ -464,10 +498,14 @@ export const useMqtt = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // ✅ Conectar automaticamente quando os tópicos estiverem configurados
   useEffect(() => {
-    connect();
+    if (deviceTopics) {
+      console.log('🔄 Tópicos configurados, conectando...');
+      connect();
+    }
     return () => disconnect();
-  }, [connect, disconnect]);
+  }, [connect, disconnect, deviceTopics]);
 
   return {
     isConnected,

@@ -122,6 +122,13 @@ BLEClient* pBLEClient = nullptr;
 String deviceUUID = "";
 String mqttUsername = "";
 String mqttPassword = "";
+
+// ✅ Tópicos MQTT dinâmicos (recebidos da autenticação)
+String topicSensors = "";
+String topicRelayStatus = "";
+String topicRelayCommand = "";
+String topicRelayConfig = "";
+String topicHeartbeat = "";
 bool authCompleted = false;
 bool wifiConnected = false;
 bool mqttConnected = false;
@@ -622,6 +629,21 @@ bool authenticateDevice() {
         mqttUsername = mqttConfig["username"].as<String>();
         mqttPassword = mqttConfig["password"].as<String>();
         
+        // ✅ Extrair tópicos personalizados
+        if (mqttConfig.containsKey("topics")) {
+          JsonObject topics = mqttConfig["topics"];
+          topicSensors = topics["sensors"].as<String>();
+          topicRelayStatus = topics["relay_status"].as<String>();
+          topicRelayCommand = topics["relay_command"].as<String>();
+          topicRelayConfig = topics["relay_config"].as<String>();
+          topicHeartbeat = topics["heartbeat"].as<String>();
+          
+          Serial.println("[INFO] ✅ Tópicos MQTT configurados:");
+          Serial.printf("  - Commands: %s\n", topicRelayCommand.c_str());
+          Serial.printf("  - Status: %s\n", topicRelayStatus.c_str());
+          Serial.printf("  - Heartbeat: %s\n", topicHeartbeat.c_str());
+        }
+        
         // Opcional: extrair client_id se necessário
         if (mqttConfig.containsKey("client_id")) {
           String clientId = mqttConfig["client_id"].as<String>();
@@ -697,8 +719,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   
   String topicStr = String(topic);
   
-  // ✅ MQTT COMMAND: Sobrescreve failsafe
-  if (topicStr == TOPIC_RELAY_COMMAND) {
+  // ✅ MQTT COMMAND: Sobrescreve failsafe (usar tópico dinâmico)
+  if (topicStr == topicRelayCommand) {
     int relay = doc["relay"];
     bool state = doc["state"];
     
@@ -711,8 +733,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
   }
   
-  // ✅ MQTT CONFIG: Atualiza configuração
-  else if (topicStr == TOPIC_RELAY_CONFIG) {
+  // ✅ MQTT CONFIG: Atualiza configuração (usar tópico dinâmico)
+  else if (topicStr == topicRelayConfig) {
     int relay = doc["relay"];
     
     if (relay >= 0 && relay < 8) {
@@ -732,8 +754,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
   }
   
-  // ✅ SENSOR DATA
-  else if (topicStr == TOPIC_SENSORS) {
+  // ✅ SENSOR DATA (usar tópico dinâmico)
+  else if (topicStr == topicSensors) {
     currentSensorData.ph = doc["ph"] | 0.0f;
     currentSensorData.ec = doc["ec"] | 0.0f;
     currentSensorData.temperature = doc["temperature"] | 0.0f;
@@ -745,6 +767,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 void publishRelayStatus() {
+  if (!mqttConnected || topicRelayStatus.length() == 0) return;
+  
   StaticJsonDocument<512> doc;
   doc["device_id"] = deviceUUID;
   doc["timestamp"] = millis();
@@ -760,10 +784,12 @@ void publishRelayStatus() {
   
   char buffer[512];
   serializeJson(doc, buffer);
-  mqttClient.publish(TOPIC_RELAY_STATUS, buffer);
+  mqttClient.publish(topicRelayStatus.c_str(), buffer);
 }
 
 void publishHeartbeat() {
+  if (!mqttConnected || topicHeartbeat.length() == 0) return;
+  
   StaticJsonDocument<256> doc;
   doc["device_id"] = deviceUUID;
   doc["timestamp"] = millis();
@@ -774,7 +800,7 @@ void publishHeartbeat() {
   
   char buffer[256];
   serializeJson(doc, buffer);
-  mqttClient.publish(TOPIC_HEARTBEAT, buffer);
+  mqttClient.publish(topicHeartbeat.c_str(), buffer);
 }
 
 // ==================== BLE ====================
