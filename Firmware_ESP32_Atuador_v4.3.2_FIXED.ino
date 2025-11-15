@@ -593,26 +593,49 @@ bool authenticateDevice() {
   https.addHeader("Content-Type", "application/json");
   https.addHeader(AUTH_HEADER_KEY, AUTH_HEADER_VALUE);
   
+  // ✅ CORREÇÃO: Usar device_uuid e firmware_version
   StaticJsonDocument<128> doc;
-  doc["device_id"] = deviceUUID;
-  doc["device_type"] = "actuator";
+  doc["device_uuid"] = deviceUUID;
+  doc["firmware_version"] = FIRMWARE_VERSION;
   
   String payload;
   serializeJson(doc, payload);
   
+  // Debug: mostrar payload
+  Serial.printf("[DEBUG] Auth payload: %s\n", payload.c_str());
+  
   int httpCode = https.POST(payload);
+  Serial.printf("[DEBUG] HTTP Code: %d\n", httpCode);
   
   if (httpCode == 200) {
     String response = https.getString();
-    StaticJsonDocument<512> respDoc;
+    Serial.printf("[DEBUG] Response: %s\n", response.c_str());
+    
+    StaticJsonDocument<1024> respDoc;
     DeserializationError error = deserializeJson(respDoc, response);
     
-    if (!error && respDoc.containsKey("mqtt_username") && respDoc.containsKey("mqtt_password")) {
-      mqttUsername = respDoc["mqtt_username"].as<String>();
-      mqttPassword = respDoc["mqtt_password"].as<String>();
-      Serial.println("[INFO] ✅ Auth OK");
-      https.end();
-      return true;
+    // ✅ CORREÇÃO: Acessar credenciais via mqtt_config
+    if (!error && respDoc.containsKey("success") && respDoc["success"] == true) {
+      JsonObject mqttConfig = respDoc["mqtt_config"];
+      
+      if (mqttConfig.containsKey("username") && mqttConfig.containsKey("password")) {
+        mqttUsername = mqttConfig["username"].as<String>();
+        mqttPassword = mqttConfig["password"].as<String>();
+        
+        // Opcional: extrair client_id se necessário
+        if (mqttConfig.containsKey("client_id")) {
+          String clientId = mqttConfig["client_id"].as<String>();
+          Serial.printf("[INFO] Client ID: %s\n", clientId.c_str());
+        }
+        
+        Serial.println("[INFO] ✅ Auth OK");
+        https.end();
+        return true;
+      } else {
+        Serial.println("[ERROR] Credenciais MQTT não encontradas na resposta");
+      }
+    } else {
+      Serial.println("[ERROR] Resposta inválida ou erro no parsing");
     }
   }
   
