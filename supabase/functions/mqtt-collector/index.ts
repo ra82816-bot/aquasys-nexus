@@ -6,108 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Rate limiting configuration
-const RATE_LIMIT_WINDOW = 60000; // 1 minuto
-const MAX_REQUESTS_PER_WINDOW = 100; // 100 requisições por minuto por dispositivo
-const BLOCK_DURATION = 300000; // 5 minutos de bloqueio
-
-async function checkRateLimit(supabase: any, deviceUuid: string, endpoint: string): Promise<{ allowed: boolean; message?: string }> {
-  try {
-    // Buscar device_id
-    const { data: device } = await supabase
-      .from('devices')
-      .select('id')
-      .eq('device_uuid', deviceUuid)
-      .single();
-
-    if (!device) return { allowed: true }; // Dispositivo não cadastrado, permitir
-
-    const now = new Date();
-    
-    // Verificar se está bloqueado
-    const { data: existingLimit } = await supabase
-      .from('mqtt_rate_limits')
-      .select('*')
-      .eq('device_id', device.id)
-      .eq('endpoint', endpoint)
-      .single();
-
-    if (existingLimit) {
-      // Verificar se está bloqueado
-      if (existingLimit.blocked_until && new Date(existingLimit.blocked_until) > now) {
-        return {
-          allowed: false,
-          message: `Dispositivo bloqueado até ${new Date(existingLimit.blocked_until).toISOString()}`
-        };
-      }
-
-      // Verificar janela de tempo
-      const windowStart = new Date(existingLimit.window_start);
-      const timeSinceWindowStart = now.getTime() - windowStart.getTime();
-
-      if (timeSinceWindowStart < RATE_LIMIT_WINDOW) {
-        // Dentro da janela, incrementar contador
-        const newCount = existingLimit.request_count + 1;
-
-        if (newCount > MAX_REQUESTS_PER_WINDOW) {
-          // Excedeu o limite, bloquear
-          const blockedUntil = new Date(now.getTime() + BLOCK_DURATION);
-          
-          await supabase
-            .from('mqtt_rate_limits')
-            .update({
-              request_count: newCount,
-              blocked_until: blockedUntil.toISOString()
-            })
-            .eq('id', existingLimit.id);
-
-          console.warn(`Dispositivo ${deviceUuid} bloqueado por excesso de requisições`);
-
-          return {
-            allowed: false,
-            message: `Taxa excedida. Bloqueado até ${blockedUntil.toISOString()}`
-          };
-        }
-
-        // Incrementar contador
-        await supabase
-          .from('mqtt_rate_limits')
-          .update({ request_count: newCount })
-          .eq('id', existingLimit.id);
-
-        return { allowed: true };
-      } else {
-        // Nova janela, resetar contador
-        await supabase
-          .from('mqtt_rate_limits')
-          .update({
-            request_count: 1,
-            window_start: now.toISOString(),
-            blocked_until: null
-          })
-          .eq('id', existingLimit.id);
-
-        return { allowed: true };
-      }
-    } else {
-      // Primeiro acesso, criar registro
-      await supabase
-        .from('mqtt_rate_limits')
-        .insert({
-          device_id: device.id,
-          endpoint,
-          request_count: 1,
-          window_start: now.toISOString()
-        });
-
-      return { allowed: true };
-    }
-  } catch (error) {
-    console.error('Erro no rate limiting:', error);
-    return { allowed: true }; // Em caso de erro, permitir para não bloquear operação
-  }
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -120,241 +18,50 @@ serve(async (req) => {
     );
 
     const { topic, payload } = await req.json();
-    
-    // Extrair device_uuid do payload
     const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
-    const deviceUuid = data.device_uuid || 'unknown';
     
-    // Rate limiting
-    const rateLimitCheck = await checkRateLimit(supabaseAdmin, deviceUuid, topic);
-    if (!rateLimitCheck.allowed) {
-      console.warn(`Rate limit excedido para ${deviceUuid}: ${rateLimitCheck.message}`);
-      return new Response(
-        JSON.stringify({ error: 'Rate limit excedido', details: rateLimitCheck.message }),
-        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    console.log(`📥 Tópico: ${topic} | Modo: fallback`);
 
-    console.log(`Processando mensagem do tópico: ${topic} de ${deviceUuid}`);
-
-    // Processar leituras de sensores
+    // Processar sensores
     if (topic === 'aquasys/sensors/all') {
-      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
-      console.log('Dados de sensores recebidos:', JSON.stringify(data));
-
-      // Validação: pelo menos um campo válido (suporta snake_case e camelCase)
-      const hasValidData = 
-        (typeof data.ph === 'number' && !isNaN(data.ph)) ||
-        (typeof data.ec === 'number' && !isNaN(data.ec)) ||
-        (typeof data.air_temp === 'number' && !isNaN(data.air_temp)) ||
-        (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) ||
-        (typeof data.humidity === 'number' && !isNaN(data.humidity)) ||
-        (typeof data.water_temp === 'number' && !isNaN(data.water_temp)) ||
-        (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp));
-
-      if (!hasValidData) {
-        console.error('Nenhum dado de sensor válido encontrado');
-        return new Response(
-          JSON.stringify({ error: 'Nenhum dado de sensor válido' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
       const insertData: any = {};
-      
-      if (typeof data.ph === 'number' && !isNaN(data.ph)) insertData.ph = data.ph;
-      if (typeof data.ec === 'number' && !isNaN(data.ec)) insertData.ec = data.ec;
-      if (typeof data.humidity === 'number' && !isNaN(data.humidity)) insertData.humidity = data.humidity;
-      
-      // water_temp: suporta snake_case (novo) e camelCase (legado)
-      if (typeof data.water_temp === 'number' && !isNaN(data.water_temp)) {
-        insertData.water_temp = data.water_temp;
-      } else if (typeof data.waterTemp === 'number' && !isNaN(data.waterTemp)) {
-        insertData.water_temp = data.waterTemp;
-      }
-      
-      // air_temp: suporta snake_case (novo) e camelCase (legado), com fallback para water_temp
-      if (typeof data.air_temp === 'number' && !isNaN(data.air_temp)) {
-        insertData.air_temp = data.air_temp;
-      } else if (typeof data.airTemp === 'number' && !isNaN(data.airTemp)) {
-        insertData.air_temp = data.airTemp;
-      } else if (insertData.water_temp) {
-        insertData.air_temp = insertData.water_temp;
-        console.log('Usando water_temp como fallback para air_temp');
-      }
+      if (typeof data.ph === 'number') insertData.ph = data.ph;
+      if (typeof data.ec === 'number') insertData.ec = data.ec;
+      if (typeof data.humidity === 'number') insertData.humidity = data.humidity;
+      if (typeof data.water_temp === 'number') insertData.water_temp = data.water_temp;
+      if (typeof data.air_temp === 'number') insertData.air_temp = data.air_temp;
 
-      const { error: insertError } = await supabaseAdmin
-        .from('readings')
-        .insert(insertData);
-
-      if (insertError) {
-        console.error('Erro ao inserir leituras:', insertError);
-        return new Response(
-          JSON.stringify({ error: insertError.message }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      console.log('Leituras inseridas com sucesso!');
-
-      // ✅ CRÍTICO: Atualizar status do dispositivo mesmo sem heartbeat dedicado
-      const { data: device } = await supabaseAdmin
-        .from('devices')
-        .select('id')
-        .eq('device_uuid', deviceUuid)
-        .maybeSingle();
-
-      if (device) {
-        // Atualizar last_seen_at (para mostrar como online)
-        await supabaseAdmin
-          .from('devices')
-          .update({ last_seen_at: new Date().toISOString() })
-          .eq('id', device.id);
-
-        // Inserir health básico (para status nas abas Status e Gerenciar)
-        await supabaseAdmin
-          .from('device_health')
-          .insert({
-            device_id: device.id,
-            mqtt_connected: true,
-            sensor_ph_valid: insertData.ph !== undefined,
-            sensor_ec_valid: insertData.ec !== undefined,
-            sensor_temp_valid: insertData.air_temp !== undefined,
-            sensor_humidity_valid: insertData.humidity !== undefined,
-            sensor_water_temp_valid: insertData.water_temp !== undefined,
-          });
-        
-        console.log(`✅ Status online atualizado para ${deviceUuid}`);
-      }
+      await supabaseAdmin.from('readings').insert(insertData);
+      console.log('✅ Leituras inseridas');
     }
 
-    // Processar heartbeat com health data
-    if (topic === 'aquasys/heartbeat') {
-      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
-      console.log('💓 Heartbeat recebido:', JSON.stringify(data, null, 2));
-
-      // Extrair device_uuid da mensagem
-      let deviceUuid = data.device_uuid;
-      if (!deviceUuid && data.device) {
-        const match = data.device.match(/HYDRO-([A-F0-9-]+)/i);
-        if (match) deviceUuid = `HYDRO-${match[1]}`;
-      }
-
-      if (deviceUuid) {
-        // Buscar device_id
-        const { data: device } = await supabaseAdmin
-          .from('devices')
-          .select('id')
-          .eq('device_uuid', deviceUuid)
-          .maybeSingle();
-
-        if (device) {
-          console.log(`✅ Device encontrado: ${deviceUuid} (ID: ${device.id})`);
-          
-          // ✅ SUPORTE PARA FIRMWARE v4.3.0 (estrutura aninhada) E VERSÕES ANTIGAS
-          const status = data.status || {};
-          const memory = data.memory || {};
-          const wifi = data.wifi || {};
-          const mqtt = data.mqtt || {};
-          const sensors = data.sensors || {};
-          
-          // Inserir health data
-          const healthData: any = {
-            device_id: device.id,
-            // Uptime
-            uptime_seconds: data.uptime_ms ? Math.floor(data.uptime_ms / 1000) : (data.uptime || 0),
-            // Memória (v4.3.0 ou formato antigo)
-            free_heap: memory.free_heap || data.free_heap || data.freeHeap || 0,
-            min_free_heap: memory.min_free_heap || data.min_free_heap || data.minFreeHeap || 0,
-            // WiFi (v4.3.0 ou formato antigo)
-            wifi_ssid: wifi.ssid || data.wifi_ssid || null,
-            wifi_rssi: status.rssi || wifi.rssi || data.wifi_rssi || -70,
-            wifi_ip: status.ip_address || wifi.ip || data.wifi_ip || null,
-            wifi_reconnects: wifi.reconnects || data.wifi_reconnects || 0,
-            // MQTT (v4.3.0 ou formato antigo)
-            mqtt_connected: status.mqtt_connected ?? mqtt.connected ?? (data.mqtt_connected !== false),
-            mqtt_failed_attempts: mqtt.failed_attempts || data.mqtt_failed_attempts || 0,
-            mqtt_last_message_age_ms: mqtt.last_message_age_ms || data.mqtt_last_message_age_ms || 0,
-            // Sensores
-            sensor_ph_valid: sensors.ph_valid ?? data.sensor_ph_valid ?? null,
-            sensor_ec_valid: sensors.ec_valid ?? data.sensor_ec_valid ?? null,
-            sensor_temp_valid: sensors.temp_valid ?? data.sensor_temp_valid ?? null,
-            sensor_humidity_valid: sensors.humidity_valid ?? data.sensor_humidity_valid ?? null,
-            sensor_water_temp_valid: sensors.water_temp_valid ?? data.sensor_water_temp_valid ?? null,
-          };
-
-          console.log('💾 Salvando device_health:', JSON.stringify(healthData, null, 2));
-
-          const { error: healthError } = await supabaseAdmin
-            .from('device_health')
-            .insert(healthData);
-
-          if (healthError) {
-            console.error('❌ Erro ao inserir health data:', healthError);
-          } else {
-            console.log(`✅ Health data salvo para ${deviceUuid}`);
-          }
-
-          // ✅ CRÍTICO: Atualizar last_seen_at do device (para status Online/Offline)
-          const { error: updateError } = await supabaseAdmin
-            .from('devices')
-            .update({ last_seen_at: new Date().toISOString() })
-            .eq('id', device.id);
-
-          if (updateError) {
-            console.error('❌ Erro ao atualizar last_seen_at:', updateError);
-          } else {
-            console.log(`✅ last_seen_at atualizado para ${deviceUuid}`);
-          }
-        } else {
-          console.warn(`⚠️ Device não encontrado no banco: ${deviceUuid}`);
-        }
-      } else {
-        console.error('❌ Heartbeat sem device_uuid válido');
-      }
+    // Processar heartbeat
+    if (topic === 'aquasys/heartbeat' || topic === 'aquasys/heartbeat/sensor') {
+      console.log('💓 Heartbeat recebido');
     }
 
-    // Processar status dos relés
+    // Processar relés
     if (topic === 'aquasys/relay/status') {
-      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
-      console.log('📥 Status dos relés recebido:', JSON.stringify(data));
-
-      // ✅ CORREÇÃO: Aceitar AMBOS os formatos (relay0-7 direto do ESP32 OU relay1_led-relay8_generic do useMqtt)
       const insertData = {
-        relay1_led: data.relay1_led !== undefined ? data.relay1_led : (data.relay0 ?? false),
-        relay2_pump: data.relay2_pump !== undefined ? data.relay2_pump : (data.relay1 ?? false),
-        relay3_ph_up: data.relay3_ph_up !== undefined ? data.relay3_ph_up : (data.relay2 ?? false),
-        relay4_fan: data.relay4_fan !== undefined ? data.relay4_fan : (data.relay3 ?? false),
-        relay5_humidity: data.relay5_humidity !== undefined ? data.relay5_humidity : (data.relay4 ?? false),
-        relay6_ec: data.relay6_ec !== undefined ? data.relay6_ec : (data.relay5 ?? false),
-        relay7_co2: data.relay7_co2 !== undefined ? data.relay7_co2 : (data.relay6 ?? false),
-        relay8_generic: data.relay8_generic !== undefined ? data.relay8_generic : (data.relay7 ?? false),
+        relay1_led: data.relay0 ?? false,
+        relay2_pump: data.relay1 ?? false,
+        relay3_ph_up: data.relay2 ?? false,
+        relay4_fan: data.relay3 ?? false,
+        relay5_humidity: data.relay4 ?? false,
+        relay6_ec: data.relay5 ?? false,
+        relay7_co2: data.relay6 ?? false,
+        relay8_generic: data.relay7 ?? false,
       };
-
-      console.log('💾 Inserindo no banco:', JSON.stringify(insertData));
-
-      const { error: insertError } = await supabaseAdmin
-        .from('relay_status')
-        .insert(insertData);
-
-      if (insertError) {
-        console.error('❌ Erro ao inserir status dos relés:', insertError);
-        return new Response(
-          JSON.stringify({ error: insertError.message }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      console.log('✅ Status dos relés inserido com sucesso!');
+      await supabaseAdmin.from('relay_status').insert(insertData);
+      console.log('✅ Status relés inserido');
     }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Erro ao processar mensagem MQTT:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    console.error('Erro:', error);
+    return new Response(JSON.stringify({ error: String(error) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
