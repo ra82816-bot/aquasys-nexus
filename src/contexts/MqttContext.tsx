@@ -7,7 +7,7 @@ interface MqttContextType {
   lastMessage: MqttMessage | null;
   lastSensorUpdate: number;
   sensorTimeout: boolean;
-  deviceTopics: { sensors: string; relayStatus: string; relayCommand: string; heartbeat: string } | null;
+  deviceTopics: { sensors: string; relayStatus: string; relayCommand: string };
   publish: (topic: string, message: any, options?: any) => Promise<void>;
   publishRelayCommand: (relayIndex: number, command: boolean) => Promise<void>;
   publishRelayConfig: (relayIndex: number, config: any) => Promise<void>;
@@ -24,14 +24,12 @@ const MqttContext = createContext<MqttContextType | undefined>(undefined);
 export const MqttProvider = ({ children }: { children: ReactNode }) => {
   const mqtt = useMqtt();
 
-  // ✅ CORREÇÃO: Garantir que sempre temos um valor válido
-  // Mesmo durante a inicialização, fornecemos um objeto com valores padrão
   const contextValue: MqttContextType = {
-    isConnected: mqtt.isConnected ?? false,
-    lastMessage: mqtt.lastMessage ?? null,
-    lastSensorUpdate: mqtt.lastSensorUpdate ?? 0,
-    sensorTimeout: mqtt.sensorTimeout ?? false,
-    deviceTopics: mqtt.deviceTopics ?? null,
+    isConnected: mqtt.isConnected,
+    lastMessage: mqtt.lastMessage,
+    lastSensorUpdate: mqtt.lastSensorUpdate,
+    sensorTimeout: mqtt.sensorTimeout,
+    deviceTopics: mqtt.deviceTopics,
     publish: mqtt.publish,
     publishRelayCommand: mqtt.publishRelayCommand,
     publishRelayConfig: mqtt.publishRelayConfig,
