@@ -33,40 +33,29 @@ export const DeviceStatus = () => {
   useEffect(() => {
     if (!deviceTopics) return;
 
-    // Processar heartbeat do dispositivo atuador
-    if (lastMessage?.topic === deviceTopics.heartbeat) {
+    // Processar relay status como indicador de dispositivo online
+    if (lastMessage?.topic === deviceTopics.relayStatus) {
       const data = lastMessage.payload;
+      const uuid = 'ESP32_ACTUATOR'; // ID fixo para o módulo atuador
       
-      const deviceHealth: DeviceHealth = {
-        uuid: data.device_uuid || data.device_id || 'unknown',
-        firmware: data.firmware_version || 'unknown',
-        uptime: data.uptime || 0,
-        wifi: {
-          ssid: data.wifi?.ssid || 'N/A',
-          rssi: data.rssi || 0,
-          reconnects: data.wifi?.reconnects || 0
-        },
-        mqtt: {
-          connected: true,
-          failed_attempts: 0
-        },
-        memory: {
-          free_heap: data.free_heap || 0,
-          min_free_heap: data.min_free_heap || 0
-        },
-        type: 'actuator',
-        lastSeen: Date.now(),
-        status: 'online'
-      };
-
       setDevices(prev => {
         const updated = new Map(prev);
-        updated.set(deviceHealth.uuid, deviceHealth);
+        updated.set(uuid, {
+          uuid,
+          firmware: 'v3.4.4-STABLE',
+          uptime: 0,
+          wifi: { ssid: 'N/A', rssi: 0, reconnects: 0 },
+          mqtt: { connected: true, failed_attempts: 0 },
+          memory: { free_heap: 0, min_free_heap: 0 },
+          type: 'actuator',
+          lastSeen: Date.now(),
+          status: 'online'
+        });
         return updated;
       });
     } 
-    // Usar relay status para inferir que dispositivo está online
-    else if (lastMessage?.topic === deviceTopics.relayStatus) {
+    // Processar sensores
+    else if (lastMessage?.topic === deviceTopics.sensors) {
       const data = lastMessage.payload;
       const uuid = data.device_id || deviceTopics.relayCommand.split('/')[1];
       
