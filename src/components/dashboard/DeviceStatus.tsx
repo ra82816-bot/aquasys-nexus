@@ -28,15 +28,14 @@ interface DeviceHealth {
 
 export const DeviceStatus = () => {
   const [devices, setDevices] = useState<Map<string, DeviceHealth>>(new Map());
-  const { lastMessage, deviceTopics } = useMqttContext();
+  const { lastMessage } = useMqttContext();
 
   useEffect(() => {
-    if (!deviceTopics) return;
+    if (!lastMessage) return;
 
-    // Processar relay status como indicador de dispositivo online
-    if (lastMessage?.topic === deviceTopics.relayStatus) {
-      const data = lastMessage.payload;
-      const uuid = 'ESP32_ACTUATOR'; // ID fixo para o módulo atuador
+    // Processar relay status como indicador de dispositivo atuador online
+    if (lastMessage.topic === 'aquasys/relay/status') {
+      const uuid = 'ESP32_ACTUATOR';
       
       setDevices(prev => {
         const updated = new Map(prev);
@@ -54,74 +53,38 @@ export const DeviceStatus = () => {
         return updated;
       });
     } 
-    // Processar sensores
-    else if (lastMessage?.topic === deviceTopics.sensors) {
+    // Processar dados de sensores
+    else if (lastMessage.topic === 'aquasys/sensors/all') {
       const data = lastMessage.payload;
-      const uuid = data.device_id || deviceTopics.relayCommand.split('/')[1];
+      const uuid = 'ESP32_SENSOR';
       
       setDevices(prev => {
         const updated = new Map(prev);
-        const existing = updated.get(uuid);
-        
-        if (existing) {
-          updated.set(uuid, {
-            ...existing,
-            lastSeen: Date.now(),
-            status: 'online'
-          });
-        } else {
-          updated.set(uuid, {
-            uuid,
-            firmware: 'unknown',
-            uptime: data.timestamp || 0,
-            wifi: { ssid: 'N/A', rssi: 0, reconnects: 0 },
-            mqtt: { connected: true, failed_attempts: 0 },
-            memory: { free_heap: 0, min_free_heap: 0 },
-            type: 'actuator',
-            lastSeen: Date.now(),
-            status: 'online'
-          });
-        }
-        
+        updated.set(uuid, {
+          uuid,
+          firmware: data.firmware || 'unknown',
+          uptime: data.uptime || 0,
+          wifi: { 
+            ssid: data.wifi_ssid || 'N/A', 
+            rssi: data.wifi_rssi || 0, 
+            reconnects: data.wifi_reconnects || 0 
+          },
+          mqtt: { 
+            connected: data.mqtt_connected || true, 
+            failed_attempts: data.mqtt_failed_attempts || 0 
+          },
+          memory: { 
+            free_heap: data.free_heap || 0, 
+            min_free_heap: data.min_free_heap || 0 
+          },
+          type: 'sensor',
+          lastSeen: Date.now(),
+          status: 'online'
+        });
         return updated;
       });
     }
-    // Processar mensagens LWT de status
-    else if (lastMessage?.topic?.endsWith('/status')) {
-      const data = lastMessage.payload;
-      const uuid = data.uuid;
-      const status = data.status as 'online' | 'offline';
-      
-      if (uuid && status) {
-        setDevices(prev => {
-          const updated = new Map(prev);
-          const existing = updated.get(uuid);
-          
-          if (existing) {
-            updated.set(uuid, {
-              ...existing,
-              status,
-              lastSeen: status === 'online' ? Date.now() : existing.lastSeen
-            });
-          } else if (status === 'online') {
-            updated.set(uuid, {
-              uuid,
-              firmware: 'unknown',
-              uptime: 0,
-              wifi: { ssid: 'N/A', rssi: 0, reconnects: 0 },
-              mqtt: { connected: true, failed_attempts: 0 },
-              memory: { free_heap: 0, min_free_heap: 0 },
-              type: data.type === 'sensor' ? 'sensor' : 'actuator',
-              lastSeen: Date.now(),
-              status: 'online'
-            });
-          }
-          
-          return updated;
-        });
-      }
-    }
-  }, [lastMessage, deviceTopics]);
+  }, [lastMessage]);
 
   // Remover dispositivos offline (sem heartbeat há mais de 5 minutos)
   useEffect(() => {
@@ -165,7 +128,7 @@ export const DeviceStatus = () => {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Aguardando heartbeat dos dispositivos...
+            Aguardando dados dos dispositivos...
           </p>
         </CardContent>
       </Card>
