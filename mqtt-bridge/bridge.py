@@ -4,6 +4,9 @@ import json
 import time
 import os
 import threading
+import subprocess
+from flask import Flask, send_from_directory, jsonify
+from flask_cors import CORS
 
 # Configurações HiveMQ Cloud
 MQTT_BROKER = os.getenv("MQTT_BROKER", "8cda72f06f464778bc53751d7cc88ac2.s1.eu.hivemq.cloud")
@@ -25,6 +28,38 @@ TOPIC_RELAY_COMMANDS = "aquasys/relay/commands"
 
 # Cliente MQTT global
 mqtt_client = None
+
+# Configurações de streaming
+CAMERA_IP = os.getenv("CAMERA_IP", "192.168.0.17")
+CAMERA_USER = os.getenv("CAMERA_USER", "admin")
+CAMERA_PASS = os.getenv("CAMERA_PASS", "Crepaldi")
+CAMERA_RTSP_PATH = os.getenv("CAMERA_RTSP_PATH", "stream1")
+RTSP_URL = f"rtsp://{CAMERA_USER}:{CAMERA_PASS}@{CAMERA_IP}:554/{CAMERA_RTSP_PATH}"
+
+# Diretório para armazenar segmentos HLS
+HLS_DIR = os.path.join(os.path.dirname(__file__), "hls_stream")
+os.makedirs(HLS_DIR, exist_ok=True)
+
+# Processo FFmpeg global
+ffmpeg_process = None
+
+# Flask app para servir HLS
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+@app.route('/stream/<path:filename>')
+def serve_hls(filename):
+    """Serve arquivos HLS (.m3u8 e .ts)"""
+    return send_from_directory(HLS_DIR, filename)
+
+@app.route('/health')
+def health():
+    """Endpoint de health check"""
+    return jsonify({
+        "status": "online",
+        "ffmpeg_running": ffmpeg_process is not None and ffmpeg_process.poll() is None,
+        "rtsp_url": f"rtsp://***:***@{CAMERA_IP}:554/{CAMERA_RTSP_PATH}"
+    })
 
 def on_connect(client, userdata, flags, rc):
     print(f"Conectado ao HiveMQ com código: {rc}")
@@ -150,10 +185,68 @@ def check_pending_commands():
         # Verificar a cada 2 segundos
         time.sleep(2)
 
+def start_ffmpeg_stream():
+    """Inicia o processo FFmpeg para converter RTSP → HLS"""
+    global ffmpeg_process
+    
+    print(f"\n=== Iniciando conversão RTSP → HLS ===")
+    print(f"RTSP: {RTSP_URL}")
+    print(f"HLS Dir: {HLS_DIR}")
+    
+    # Limpar arquivos HLS antigos
+    for file in os.listdir(HLS_DIR):
+        if file.endswith(('.ts', '.m3u8')):
+            os.remove(os.path.join(HLS_DIR, file))
+    
+    # Comando FFmpeg otimizado para streaming
+    ffmpeg_cmd = [
+        'ffmpeg',
+        '-rtsp_transport', 'tcp',  # Usar TCP para RTSP (mais estável)
+        '-i', RTSP_URL,
+        '-c:v', 'copy',  # Copiar codec de vídeo (sem recodificação)
+        '-c:a', 'aac',   # Codec de áudio AAC
+        '-f', 'hls',     # Formato HLS
+        '-hls_time', '2',  # Duração de cada segmento (2 segundos)
+        '-hls_list_size', '5',  # Manter 5 segmentos na playlist
+        '-hls_flags', 'delete_segments+append_list',  # Deletar segmentos antigos
+        '-hls_segment_filename', os.path.join(HLS_DIR, 'segment_%03d.ts'),
+        os.path.join(HLS_DIR, 'stream.m3u8')
+    ]
+    
+    try:
+        ffmpeg_process = subprocess.Popen(
+            ffmpeg_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        print("✓ FFmpeg iniciado com sucesso")
+        
+        # Thread para monitorar FFmpeg
+        def monitor_ffmpeg():
+            while True:
+                if ffmpeg_process.poll() is not None:
+                    print("⚠ FFmpeg encerrado inesperadamente. Reiniciando...")
+                    time.sleep(5)
+                    start_ffmpeg_stream()
+                    break
+                time.sleep(10)
+        
+        threading.Thread(target=monitor_ffmpeg, daemon=True).start()
+        
+    except Exception as e:
+        print(f"✗ Erro ao iniciar FFmpeg: {e}")
+        print("Certifique-se de que o FFmpeg está instalado: sudo apt-get install ffmpeg")
+
+def start_flask_server():
+    """Inicia o servidor Flask em uma thread separada"""
+    print("\n=== Iniciando servidor HLS ===")
+    print("Servidor disponível em: http://localhost:5000")
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+
 def main():
     global mqtt_client
     
-    print("=== Ponte MQTT-HTTP AquaSys ===")
+    print("=== Ponte MQTT-HTTP + Streaming AquaSys ===")
     print(f"Conectando ao broker: {MQTT_BROKER}:{MQTT_PORT}")
     
     # Criar cliente MQTT
@@ -172,12 +265,20 @@ def main():
     command_thread.start()
     print("✓ Thread de verificação de comandos iniciada")
     
+    # Iniciar streaming de câmera
+    start_ffmpeg_stream()
+    
+    # Iniciar servidor Flask em thread separada
+    flask_thread = threading.Thread(target=start_flask_server, daemon=True)
+    flask_thread.start()
+    print("✓ Servidor HLS iniciado")
+    
     # Conectar ao broker
     try:
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         
         # Manter o cliente rodando
-        print("Ponte ativa. Aguardando mensagens...\n")
+        print("\nPonte ativa. Aguardando mensagens MQTT...\n")
         client.loop_forever()
         
     except Exception as e:
