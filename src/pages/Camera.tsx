@@ -31,35 +31,34 @@ const Camera = () => {
       setIsLoading(true);
       setError("");
 
-      const { data: { session } } = await supabase.auth.getSession();
-      
       const url = config.streamType === 'snapshot' ? getSnapshotUrl() : getMjpegUrl();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       
-      const response = await fetch(`${supabaseUrl}/functions/v1/camera-proxy`, {
-        method: 'POST',
+      // Construir autenticação Basic
+      const authHeader = `Basic ${btoa(`${config.username}:${config.password}`)}`;
+      
+      // Tentar acesso direto (funciona se câmera está na mesma rede)
+      const response = await fetch(url, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token || ''}`,
+          'Authorization': authHeader,
         },
-        body: JSON.stringify({
-          url,
-          username: config.username,
-          password: config.password,
-        }),
+        mode: 'cors', // Tentará CORS primeiro
       });
 
       if (!response.ok) {
-        throw new Error(`Erro ao conectar: ${response.status}`);
+        if (response.status === 401) {
+          throw new Error('Credenciais inválidas. Verifique usuário e senha.');
+        }
+        throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
       }
 
       const contentType = response.headers.get('content-type');
       
       if (contentType?.includes('multipart/x-mixed-replace')) {
-        // MJPEG stream
-        const blob = await response.blob();
+        // MJPEG stream contínuo
         if (imgRef.current) {
-          imgRef.current.src = URL.createObjectURL(blob);
+          // Para MJPEG, definir src diretamente com auth
+          imgRef.current.src = url.replace('http://', `http://${config.username}:${config.password}@`);
           setIsConnected(true);
         }
       } else if (contentType?.includes('image/')) {
@@ -70,13 +69,24 @@ const Camera = () => {
           setIsConnected(true);
         }
       } else {
-        throw new Error('Formato de stream não suportado');
+        throw new Error('Formato não suportado. Tente outro caminho de stream.');
       }
 
       setIsLoading(false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Erro ao conectar à câmera";
-      console.error("Erro:", err);
+      let errorMessage = "Erro ao conectar à câmera";
+      
+      if (err instanceof Error) {
+        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+          errorMessage = "Não foi possível conectar. Certifique-se de que:\n1. A câmera está na mesma rede\n2. O IP está correto\n3. O caminho do stream está correto";
+        } else if (err.message.includes('CORS')) {
+          errorMessage = "Erro CORS. Você precisa:\n1. Ativar CORS nas configurações da câmera\nOU\n2. Usar o bridge Python local";
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      console.error("Erro completo:", err);
       setError(errorMessage);
       setIsConnected(false);
       setIsLoading(false);
@@ -330,18 +340,47 @@ const Camera = () => {
             <CardHeader>
               <CardTitle>Como Usar</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>✅ <strong>Sem bridge Python necessário</strong> - Conexão direta via edge function</p>
-              <p>✅ <strong>Suporte a MJPEG e Snapshot</strong> - Funciona com a maioria das câmeras IP</p>
-              <p>✅ <strong>Configuração fácil</strong> - Apenas IP, porta e credenciais</p>
-              <div className="mt-4 p-3 bg-muted rounded-lg">
-                <p className="font-medium mb-2">💡 Dica: Caminhos comuns de câmeras IP</p>
-                <ul className="list-disc list-inside space-y-1 text-xs">
-                  <li>Hikvision: /Streaming/channels/1/preview</li>
-                  <li>Dahua: /cgi-bin/snapshot.cgi</li>
-                  <li>Genérico MJPEG: /video/mjpeg.cgi ou /mjpeg</li>
-                  <li>Genérico Snapshot: /snapshot.jpg ou /snap.jpg</li>
+            <CardContent className="space-y-3 text-sm">
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">✅ Requisitos:</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>Câmera e dispositivo na <strong>mesma rede local</strong></li>
+                  <li>IP, porta e credenciais corretas</li>
+                  <li>Caminho do stream configurado</li>
                 </ul>
+              </div>
+
+              <div className="p-3 bg-muted rounded-lg space-y-2">
+                <p className="font-medium text-foreground">💡 Caminhos comuns por marca:</p>
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <p><strong>Hikvision:</strong></p>
+                  <p className="pl-4">• MJPEG: /Streaming/channels/1/preview</p>
+                  <p className="pl-4">• Snapshot: /ISAPI/Streaming/channels/101/picture</p>
+                  
+                  <p className="mt-2"><strong>Dahua:</strong></p>
+                  <p className="pl-4">• Snapshot: /cgi-bin/snapshot.cgi</p>
+                  
+                  <p className="mt-2"><strong>Genérico:</strong></p>
+                  <p className="pl-4">• MJPEG: /video/mjpeg.cgi, /mjpeg, /video</p>
+                  <p className="pl-4">• Snapshot: /snapshot.jpg, /snap.jpg</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg space-y-2">
+                <p className="font-medium text-yellow-600 dark:text-yellow-500">⚠️ Se não conectar:</p>
+                <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
+                  <li>Teste o IP no navegador: <code className="text-xs bg-muted px-1 py-0.5 rounded">http://{config.ip}</code></li>
+                  <li>Verifique se o caminho está correto</li>
+                  <li>Confirme usuário e senha</li>
+                  <li>Se erro CORS: ative CORS nas configurações da câmera</li>
+                </ol>
+              </div>
+
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <p className="text-xs text-muted-foreground">
+                  <strong className="text-blue-600 dark:text-blue-500">ℹ️ Nota:</strong> A conexão é feita diretamente do seu navegador 
+                  para a câmera (sem usar servidores externos). Por isso, ambos precisam estar na mesma rede local.
+                </p>
               </div>
             </CardContent>
           </Card>
