@@ -21,7 +21,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(name);
   const { toast } = useToast();
-  const { publish, isConnected } = useMqttContext();
+  const { publishRelayCommand, setRelayAuto, isConnected } = useMqttContext();
 
   const handleToggle = async () => {
     if (!isConnected) {
@@ -38,17 +38,8 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     try {
       const newState = !isOn;
       
-      // Formato do comando conforme o firmware ESP32
-      const command = {
-        command: "manual_override",
-        payload: {
-          relay: relayIndex + 1, // Firmware usa 1-8
-          state: newState ? "on" : "off"
-        }
-      };
-      
-      console.log('Enviando comando de toggle:', command);
-      await publish('aquasys/relay/command', command);
+      console.log('Enviando comando de toggle:', { relay: relayIndex + 1, command: newState });
+      await publishRelayCommand(relayIndex, newState);
       
       toast({
         title: "Comando enviado",
@@ -77,14 +68,7 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     }
 
     try {
-      const command = {
-        command: "set_auto",
-        payload: {
-          relay: relayIndex + 1
-        }
-      };
-      
-      await publish('aquasys/relay/command', command);
+      await setRelayAuto(relayIndex);
       
       toast({
         title: "Modo alterado",
