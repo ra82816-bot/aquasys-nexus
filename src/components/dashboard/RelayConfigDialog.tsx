@@ -49,10 +49,21 @@ export const RelayConfigDialog = ({
   }, [config]);
 
   const prepareMqttConfig = (mode: string, formData: Record<string, any>) => {
-    // ✅ CORREÇÃO: ESP32 v4.3.0 espera strings diretas, não números
+    const modeMap: Record<string, number> = {
+      'unused': 0,
+      'led': 1,
+      'cycle': 2,
+      'ph_up': 3,
+      'temperature': 4,
+      'humidity': 5,
+      'ec': 6,
+      'co2': 7,
+      'ph_down': 8,
+      'manual': 0
+    };
+
     return {
-      mode: mode, // Enviar string direta: "cycle", "led", "manual", etc.
-      relay: formData.relay_index || 0,
+      mode: modeMap[mode] || 0,
       led_on_hour: formData.led_on_hour || 6,
       led_off_hour: formData.led_off_hour || 0,
       cycle_on_min: formData.cycle_on_min || 15,
@@ -73,14 +84,14 @@ export const RelayConfigDialog = ({
     setIsSaving(true);
     try {
       const updateData = {
+        mode,
         ...formData,
-        mode, // mode deve vir depois para sobrescrever formData.mode
         updated_at: new Date().toISOString()
       };
 
-      console.log('💾 Salvando configuração do relé:', { relayIndex, mode, formData });
+      console.log('Salvando configuração do relé:', { relayIndex, updateData });
 
-      // 1. Salvar no banco
+      // Salvar no banco
       const { data, error } = await supabase
         .from("relay_configs")
         .update(updateData)
@@ -90,32 +101,33 @@ export const RelayConfigDialog = ({
 
       if (error) throw error;
 
-      console.log('✅ Configuração salva no banco:', data);
+      console.log('Configuração salva no banco:', data);
 
-      // 2. Enviar via MQTT para o ESP32
+      // Enviar via MQTT para o ESP32
       if (isConnected) {
         const mqttConfig = prepareMqttConfig(mode, formData);
         await publishRelayConfig(relayIndex, mqttConfig);
-        
-        toast({
-          title: "✅ Configuração aplicada",
-          description: `Relé ${relayIndex + 1} configurado em modo ${mode}`,
-        });
+        console.log('Configuração enviada via MQTT:', mqttConfig);
       } else {
         toast({
-          title: "⚠️ MQTT desconectado",
-          description: "Configuração salva. Será enviada ao ESP32 quando reconectar.",
+          title: "Aviso",
+          description: "Configuração salva, mas MQTT desconectado. Será enviada ao ESP32 quando reconectar.",
           variant: "default"
         });
       }
 
+      toast({
+        title: "Sucesso",
+        description: "Configuração salva e enviada ao ESP32!"
+      });
+
       await onSave();
       onOpenChange(false);
     } catch (error: any) {
-      console.error('❌ Erro ao salvar configuração:', error);
+      console.error('Erro ao salvar configuração:', error);
       toast({
         title: "Erro",
-        description: error.message || "Falha ao salvar configuração",
+        description: error.message,
         variant: "destructive"
       });
     } finally {

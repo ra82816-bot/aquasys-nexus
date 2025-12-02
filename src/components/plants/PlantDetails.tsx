@@ -11,7 +11,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { PlantLogbook } from "./PlantLogbook";
 
 interface PlantDetailsProps {
   plantId: string;
@@ -387,13 +386,10 @@ export const PlantDetails = ({ plantId, onBack, onEdit }: PlantDetailsProps) => 
         <TabsContent value="timeline" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5 text-primary" />
-                  Linha do Tempo - Diário de Bordo
-                </CardTitle>
-                <PlantLogbook plantId={plantId} onEntryAdded={loadPlantData} />
-              </div>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                Linha do Tempo
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">

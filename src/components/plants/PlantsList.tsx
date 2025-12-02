@@ -7,8 +7,6 @@ import { Eye, Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { PlantDetails } from "./PlantDetails";
-import { CreatePlantDialog } from "./CreatePlantDialog";
 
 interface PlantsListProps {
   userId?: string;
@@ -34,8 +32,6 @@ const statusColors = {
 export const PlantsList = ({ userId, onUpdate }: PlantsListProps) => {
   const [plants, setPlants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
-  const [editingPlantId, setEditingPlantId] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -126,33 +122,7 @@ export const PlantsList = ({ userId, onUpdate }: PlantsListProps) => {
     );
   }
 
-  // Show plant details if a plant is selected
-  if (selectedPlantId) {
-    return (
-      <PlantDetails
-        plantId={selectedPlantId}
-        onBack={() => setSelectedPlantId(null)}
-        onEdit={() => {
-          setEditingPlantId(selectedPlantId);
-          setSelectedPlantId(null);
-        }}
-      />
-    );
-  }
-
   return (
-    <>
-      <CreatePlantDialog
-        open={!!editingPlantId}
-        onOpenChange={(open) => !open && setEditingPlantId(null)}
-        userId={userId}
-        onSuccess={() => {
-          loadPlants();
-          onUpdate?.();
-          setEditingPlantId(null);
-        }}
-        editPlantId={editingPlantId || undefined}
-      />
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {plants.map((plant) => (
         <Card key={plant.id} className="hover:shadow-lg transition-shadow">
@@ -190,21 +160,11 @@ export const PlantsList = ({ userId, onUpdate }: PlantsListProps) => {
             </div>
 
             <div className="flex gap-2 mt-4 pt-4 border-t">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex-1"
-                onClick={() => setSelectedPlantId(plant.id)}
-              >
+              <Button variant="outline" size="sm" className="flex-1">
                 <Eye className="h-4 w-4 mr-1" />
                 Ver
               </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex-1"
-                onClick={() => setEditingPlantId(plant.id)}
-              >
+              <Button variant="outline" size="sm" className="flex-1">
                 <Edit className="h-4 w-4 mr-1" />
                 Editar
               </Button>
@@ -219,7 +179,6 @@ export const PlantsList = ({ userId, onUpdate }: PlantsListProps) => {
           </CardContent>
         </Card>
       ))}
-      </div>
-    </>
+    </div>
   );
 };

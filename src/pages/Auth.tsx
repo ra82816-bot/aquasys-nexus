@@ -11,7 +11,6 @@ import { Leaf } from "lucide-react";
 const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [deviceUuid, setDeviceUuid] = useState("");
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -34,58 +33,13 @@ const Auth = () => {
         toast({ title: "Login realizado com sucesso!" });
         navigate("/dashboard");
       } else {
-        // Validar UUID do dispositivo
-        if (!deviceUuid.trim()) {
-          throw new Error("UUID do dispositivo é obrigatório para criar uma conta");
-        }
-
-        // Verificar se o dispositivo existe
-        const { data: device, error: deviceError } = await supabase
-          .from("devices")
-          .select("id, device_uuid")
-          .eq("device_uuid", deviceUuid.trim())
-          .maybeSingle();
-
-        if (deviceError) throw deviceError;
-        if (!device) {
-          throw new Error("Dispositivo não encontrado. Verifique o UUID e tente novamente.");
-        }
-
-        // Verificar se o dispositivo já está vinculado
-        const { data: existingOwner } = await supabase
-          .from("device_owners")
-          .select("user_id")
-          .eq("device_id", device.id)
-          .maybeSingle();
-
-        if (existingOwner) {
-          throw new Error("Este dispositivo já está vinculado a outra conta.");
-        }
-
-        // Criar conta
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        const { error } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: `${window.location.origin}/dashboard` }
         });
-
-        if (signUpError) throw signUpError;
-        if (!authData.user) throw new Error("Erro ao criar conta");
-
-        // Vincular dispositivo automaticamente
-        const { error: pairError } = await supabase
-          .from("device_owners")
-          .insert({
-            device_id: device.id,
-            user_id: authData.user.id
-          });
-
-        if (pairError) throw pairError;
-
-        toast({ 
-          title: "Conta criada com sucesso!", 
-          description: "Dispositivo vinculado automaticamente." 
-        });
+        if (error) throw error;
+        toast({ title: "Conta criada com sucesso!" });
         navigate("/dashboard");
       }
     } catch (error: any) {
@@ -139,23 +93,6 @@ const Auth = () => {
                 className="border-primary/20 focus:border-primary"
               />
             </div>
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label htmlFor="deviceUuid">UUID do Dispositivo</Label>
-                <Input
-                  id="deviceUuid"
-                  type="text"
-                  placeholder="Ex: ESP32-SENSOR-ABC123"
-                  value={deviceUuid}
-                  onChange={(e) => setDeviceUuid(e.target.value)}
-                  required={!isLogin}
-                  className="border-primary/20 focus:border-primary font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Digite o UUID do seu módulo ESP32 para vincular à sua conta
-                </p>
-              </div>
-            )}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Processando..." : isLogin ? "Entrar" : "Criar Conta"}
             </Button>

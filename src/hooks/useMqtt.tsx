@@ -13,8 +13,6 @@ export interface MqttMessage {
 export const useMqtt = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<MqttMessage | null>(null);
-  const [lastSensorUpdate, setLastSensorUpdate] = useState<number>(0);
-  const [sensorTimeout, setSensorTimeout] = useState(false);
   const clientRef = useRef<MqttClient | null>(null);
   const { toast } = useToast();
 
@@ -24,8 +22,7 @@ export const useMqtt = () => {
       return;
     }
 
-    console.log('🔌 Conectando ao broker MQTT...');
-    console.log('📡 Tópicos fixos:', MQTT_CONFIG.topics);
+    console.log('Conectando ao broker MQTT...');
     
     const client = mqtt.connect(MQTT_CONFIG.broker, {
       clientId: MQTT_CONFIG.clientId,
@@ -41,69 +38,64 @@ export const useMqtt = () => {
       console.log('✅ MQTT conectado!');
       setIsConnected(true);
       
-      // Subscribe nos tópicos fixos
+      // Subscribe nos tópicos relevantes
       const topics = [
-        MQTT_CONFIG.topics.sensors,      // aquasys/sensors/all
-        MQTT_CONFIG.topics.relayStatus,  // aquasys/relay/status
+        MQTT_CONFIG.topics.sensors,
+        MQTT_CONFIG.topics.relayStatus,
       ];
       
       client.subscribe(topics, { qos: 1 }, (err) => {
         if (err) {
-          console.error('❌ Erro ao subscrever:', err);
+          console.error('Erro ao subscrever:', err);
+          // Não mostrar toast de erro automaticamente
+          // O status será exibido no componente MqttStatus
         } else {
           console.log('✅ Inscrito nos tópicos:', topics);
-          toast({
-            title: "MQTT Conectado",
-            description: "Comunicação com ESP32 estabelecida",
-          });
         }
       });
     });
 
     client.on('message', async (topic, payload) => {
       try {
-        const message = JSON.parse(payload.toString());
-        console.log(`📨 [${topic}]`, message);
-        
-        const mqttMessage: MqttMessage = {
+        const data = JSON.parse(payload.toString());
+        const message: MqttMessage = {
           topic,
-          payload: message,
+          payload: data,
           timestamp: new Date(),
         };
-        setLastMessage(mqttMessage);
-
-        // Processar mensagens de sensores
-        if (topic === MQTT_CONFIG.topics.sensors) {
-          setLastSensorUpdate(Date.now());
-          setSensorTimeout(false);
-          await saveSensorData(message);
-        }
         
-        // Processar status dos relés
-        if (topic === MQTT_CONFIG.topics.relayStatus) {
-          await saveRelayStatus(message);
+        console.log('📩 Mensagem recebida:', { topic, data });
+        setLastMessage(message);
+
+        // Salvar dados automaticamente no banco via Edge Function
+        if (topic === MQTT_CONFIG.topics.sensors) {
+          await saveSensorData(data);
+        } else if (topic === MQTT_CONFIG.topics.relayStatus) {
+          await saveRelayStatus(data);
         }
       } catch (error) {
-        console.error('❌ Erro ao processar mensagem:', error);
+        console.error('Erro ao processar mensagem:', error);
       }
     });
 
     client.on('error', (error) => {
       console.error('❌ Erro MQTT:', error);
+      // Não mostrar toast de erro automaticamente
+      // O status será exibido no componente MqttStatus
       setIsConnected(false);
     });
 
-    client.on('offline', () => {
-      console.log('📴 MQTT offline');
+    client.on('disconnect', () => {
+      console.log('⚠️ MQTT desconectado');
       setIsConnected(false);
     });
 
     client.on('reconnect', () => {
-      console.log('🔄 Reconectando ao MQTT...');
+      console.log('🔄 Tentando reconectar...');
     });
 
-    client.on('close', () => {
-      console.log('🔌 Conexão MQTT fechada');
+    client.on('offline', () => {
+      console.log('📡 Cliente offline');
       setIsConnected(false);
     });
 
@@ -112,186 +104,178 @@ export const useMqtt = () => {
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {
-      console.log('🔌 Desconectando MQTT...');
       clientRef.current.end();
       clientRef.current = null;
       setIsConnected(false);
     }
   }, []);
 
-  const publish = useCallback(async (topic: string, message: any, options = { qos: 1 as 0 | 1 | 2 }) => {
-    return new Promise<void>((resolve, reject) => {
-      if (!clientRef.current?.connected) {
-        console.error('❌ MQTT não conectado');
-        reject(new Error('MQTT não conectado'));
-        return;
-      }
-
-      const payload = typeof message === 'string' ? message : JSON.stringify(message);
-      
-      clientRef.current.publish(topic, payload, options, (error) => {
-        if (error) {
-          console.error('❌ Erro ao publicar:', error);
-          reject(error);
-        } else {
-          console.log(`📤 Publicado em [${topic}]:`, message);
-          resolve();
+  const publish = useCallback(
+    (topic: string, message: any, options = { qos: 1 as 0 | 1 | 2 }) => {
+      return new Promise<void>((resolve, reject) => {
+        if (!clientRef.current?.connected) {
+          reject(new Error('MQTT não conectado'));
+          return;
         }
+
+        const payload = typeof message === 'string' ? message : JSON.stringify(message);
+        
+        clientRef.current.publish(topic, payload, options, (error) => {
+          if (error) {
+            console.error('Erro ao publicar:', error);
+            reject(error);
+          } else {
+            console.log('✅ Mensagem publicada:', { topic, message });
+            resolve();
+          }
+        });
       });
-    });
-  }, []);
+    },
+    []
+  );
 
-  // ✅ Publicar comando de relé usando tópico fixo
-  const publishRelayCommand = useCallback(async (relayIndex: number, command: boolean) => {
-    const relayNumber = relayIndex + 1;
-    const message = {
-      relay: relayNumber,
-      command: command,
-      timestamp: new Date().toISOString(),
-    };
-
+  const saveSensorData = useCallback(async (data: any) => {
     try {
-      await publish(MQTT_CONFIG.topics.relayCommand, message);
+      console.log('💾 Salvando dados de sensores no banco...');
       
-      toast({
-        title: command ? "Relé Ativado" : "Relé Desativado",
-        description: `Relé ${relayNumber} ${command ? 'ligado' : 'desligado'}`,
-      });
-
-      // Retry com backoff se falhar
-      let retries = 0;
-      const maxRetries = 3;
-      while (retries < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 1000 * (retries + 1)));
-        try {
-          await publish(MQTT_CONFIG.topics.relayCommand, message);
-          break;
-        } catch (error) {
-          retries++;
-          if (retries === maxRetries) {
-            throw error;
+      const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
+        body: {
+          action: 'process_sensors',
+          data: {
+            ph: data.ph,
+            ec: data.ec,
+            airTemp: data.air_temp || data.airTemp,
+            humidity: data.humidity,
+            waterTemp: data.water_temp || data.waterTemp
           }
         }
-      }
-    } catch (error) {
-      console.error('❌ Erro ao publicar comando:', error);
-      toast({
-        title: "Erro ao Controlar Relé",
-        description: "Verifique a conexão MQTT",
-        variant: "destructive",
-      });
-    }
-  }, [publish, toast]);
-
-  // ✅ Publicar configuração de relé usando tópico fixo
-  const publishRelayConfig = useCallback(async (relayIndex: number, config: any) => {
-    const relayNumber = relayIndex + 1;
-    const message = {
-      relay: relayNumber,
-      config: config,
-      timestamp: new Date().toISOString(),
-    };
-
-    try {
-      await publish(MQTT_CONFIG.topics.relayCommand, message);
-      
-      toast({
-        title: "Configuração Atualizada",
-        description: `Relé ${relayNumber} configurado com sucesso`,
-      });
-    } catch (error) {
-      console.error('❌ Erro ao publicar config:', error);
-      toast({
-        title: "Erro ao Configurar Relé",
-        description: "Verifique a conexão MQTT",
-        variant: "destructive",
-      });
-    }
-  }, [publish, toast]);
-
-  // ✅ Ativar modo automático do relé
-  const setRelayAuto = useCallback(async (relayIndex: number) => {
-    const relayNumber = relayIndex + 1;
-    const message = {
-      relay: relayNumber,
-      auto: true,
-      timestamp: new Date().toISOString(),
-    };
-
-    try {
-      await publish(MQTT_CONFIG.topics.relayCommand, message);
-      
-      toast({
-        title: "Modo Automático",
-        description: `Relé ${relayNumber} em modo automático`,
-      });
-    } catch (error) {
-      console.error('❌ Erro ao ativar modo auto:', error);
-      toast({
-        title: "Erro ao Ativar Automático",
-        description: "Verifique a conexão MQTT",
-        variant: "destructive",
-      });
-    }
-  }, [publish, toast]);
-
-  // Salvar dados de sensores no Supabase
-  const saveSensorData = async (data: any) => {
-    try {
-      const { error } = await supabase.functions.invoke('mqtt-collector', {
-        body: {
-          topic: MQTT_CONFIG.topics.sensors,
-          payload: data,
-        },
       });
 
       if (error) {
-        console.error('❌ Erro ao salvar dados de sensores:', error);
+        console.error('❌ Erro ao salvar sensores:', error);
       } else {
-        console.log('✅ Dados de sensores salvos');
+        console.log('✅ Dados de sensores salvos:', result);
       }
     } catch (error) {
-      console.error('❌ Erro ao invocar mqtt-collector:', error);
+      console.error('❌ Erro ao chamar edge function:', error);
     }
-  };
+  }, []);
 
-  // Salvar status dos relés no Supabase
-  const saveRelayStatus = async (data: any) => {
+  const saveRelayStatus = useCallback(async (data: any) => {
     try {
-      const { error } = await supabase.functions.invoke('mqtt-collector', {
+      console.log('💾 Salvando status dos relés no banco...', data);
+      
+      // Mapear relay1, relay2, etc. para relay1_led, relay2_pump, etc.
+      const mappedData = {
+        relay1_led: data.relay1 ?? false,
+        relay2_pump: data.relay2 ?? false,
+        relay3_ph_up: data.relay3 ?? false,
+        relay4_fan: data.relay4 ?? false,
+        relay5_humidity: data.relay5 ?? false,
+        relay6_ec: data.relay6 ?? false,
+        relay7_co2: data.relay7 ?? false,
+        relay8_generic: data.relay8 ?? false
+      };
+
+      console.log('💾 Dados mapeados para salvar:', mappedData);
+      
+      const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
-          topic: MQTT_CONFIG.topics.relayStatus,
-          payload: data,
-        },
+          action: 'process_relay_status',
+          data: mappedData
+        }
       });
 
       if (error) {
         console.error('❌ Erro ao salvar status dos relés:', error);
       } else {
-        console.log('✅ Status dos relés salvo');
+        console.log('✅ Status dos relés salvo:', result);
       }
     } catch (error) {
-      console.error('❌ Erro ao invocar mqtt-collector:', error);
+      console.error('❌ Erro ao chamar edge function:', error);
     }
-  };
+  }, []);
 
-  // Timeout de sensores (30 segundos sem dados)
-  useEffect(() => {
-    if (lastSensorUpdate === 0) return;
+  const publishRelayCommand = useCallback(
+    async (relayIndex: number, command: boolean) => {
+      // Formato simplificado compatível com firmware v3.4+
+      const message = {
+        relay: relayIndex + 1, // ESP32 usa 1-8, não 0-7
+        command: command // boolean direto
+      };
 
-    const timeout = setTimeout(() => {
-      setSensorTimeout(true);
-      toast({
-        title: "Timeout de Sensores",
-        description: "Nenhum dado recebido nos últimos 30 segundos",
-        variant: "destructive",
-      });
-    }, 30000);
+      try {
+        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        toast({
+          title: 'Comando enviado',
+          description: `Relé ${relayIndex + 1} → ${command ? 'LIGADO' : 'DESLIGADO'}`,
+        });
+      } catch (error) {
+        toast({
+          title: 'Erro ao enviar comando',
+          description: 'Falha na comunicação MQTT',
+          variant: 'destructive',
+        });
+        throw error;
+      }
+    },
+    [publish, toast]
+  );
 
-    return () => clearTimeout(timeout);
-  }, [lastSensorUpdate, toast]);
+  const publishRelayConfig = useCallback(
+    async (relayIndex: number, config: any) => {
+      // Formato simplificado compatível com firmware v3.4+
+      const message = {
+        relay: relayIndex + 1, // ESP32 usa 1-8
+        config: config
+      };
 
-  // Auto-conectar ao montar
+      try {
+        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        console.log('✅ Configuração enviada via MQTT para relé', relayIndex);
+        toast({
+          title: 'Configuração enviada',
+          description: `Relé ${relayIndex + 1} configurado com sucesso`,
+        });
+      } catch (error) {
+        console.error('❌ Erro ao enviar configuração:', error);
+        toast({
+          title: 'Erro ao enviar configuração',
+          description: 'Falha na comunicação MQTT',
+          variant: 'destructive',
+        });
+        throw error;
+      }
+    },
+    [publish, toast]
+  );
+
+  const setRelayAuto = useCallback(
+    async (relayIndex: number) => {
+      // Formato simplificado compatível com firmware v3.4+
+      const message = {
+        relay: relayIndex + 1, // ESP32 usa 1-8
+        auto: true
+      };
+
+      try {
+        await publish(MQTT_CONFIG.topics.relayCommand, message);
+        toast({
+          title: 'Modo automático',
+          description: `Relé ${relayIndex + 1} retornado ao modo automático`,
+        });
+      } catch (error) {
+        toast({
+          title: 'Erro',
+          description: 'Falha ao definir modo automático',
+          variant: 'destructive',
+        });
+        throw error;
+      }
+    },
+    [publish, toast]
+  );
+
   useEffect(() => {
     connect();
     return () => disconnect();
@@ -300,9 +284,6 @@ export const useMqtt = () => {
   return {
     isConnected,
     lastMessage,
-    lastSensorUpdate,
-    sensorTimeout,
-    deviceTopics: MQTT_CONFIG.topics, // Retornar tópicos fixos
     publish,
     publishRelayCommand,
     publishRelayConfig,

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Power, PowerOff, Pencil, Check, X, RefreshCcw } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useMqttContext } from "@/contexts/MqttContext";
@@ -20,38 +20,8 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   const [isLoading, setIsLoading] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(name);
-  const [commandStatus, setCommandStatus] = useState<'idle' | 'pending' | 'confirmed'>('idle');
   const { toast } = useToast();
-  const { publishRelayCommand, setRelayAuto, isConnected, lastMessage, deviceTopics } = useMqttContext();
-
-  // ✅ CONFIRMAÇÃO VISUAL: Detectar confirmação via MQTT
-  useEffect(() => {
-    if (commandStatus === 'pending' && deviceTopics && lastMessage?.topic === deviceTopics.relayStatus) {
-      console.log(`🔍 [RelayCard ${relayIndex}] Verificando confirmação:`, {
-        payload: lastMessage.payload,
-        expectedState: !isOn,
-        currentState: isOn
-      });
-      
-      // Parsing do payload do ESP32 (formato: {relays: [{index: 0, state: true, mode: 0}, ...]})
-      const relays = lastMessage.payload.relays;
-      if (relays && Array.isArray(relays)) {
-        const relayData = relays.find((r: any) => r.index === relayIndex);
-        
-        if (relayData) {
-          setCommandStatus('confirmed');
-          setIsLoading(false);
-          
-          toast({
-            title: "✅ Confirmado",
-            description: `Relé ${relayIndex + 1} respondeu: ${relayData.state ? 'LIGADO' : 'DESLIGADO'}`,
-          });
-          
-          setTimeout(() => setCommandStatus('idle'), 2000);
-        }
-      }
-    }
-  }, [lastMessage, commandStatus, relayIndex, isOn, toast, deviceTopics]);
+  const { publish, isConnected } = useMqttContext();
 
   const handleToggle = async () => {
     if (!isConnected) {
@@ -63,40 +33,36 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       return;
     }
 
-    setCommandStatus('pending');
     setIsLoading(true);
 
     try {
       const newState = !isOn;
-      await publishRelayCommand(relayIndex, newState);
+      
+      // Formato do comando conforme o firmware ESP32
+      const command = {
+        command: "manual_override",
+        payload: {
+          relay: relayIndex + 1, // Firmware usa 1-8
+          state: newState ? "on" : "off"
+        }
+      };
+      
+      console.log('Enviando comando de toggle:', command);
+      await publish('aquasys/relay/command', command);
       
       toast({
         title: "Comando enviado",
-        description: `Aguardando confirmação do relé ${relayIndex + 1}...`,
+        description: `Relé ${relayIndex + 1} ${newState ? 'LIGADO' : 'DESLIGADO'}`,
       });
-      
-      // Timeout de 10 segundos para confirmação (aumentado de 5s)
-      setTimeout(() => {
-        if (commandStatus === 'pending') {
-          setCommandStatus('idle');
-          setIsLoading(false);
-          toast({
-            title: "⚠️ Sem confirmação",
-            description: "Comando enviado, mas sem resposta do dispositivo",
-            variant: "destructive",
-          });
-        }
-      }, 10000);
-      
     } catch (error) {
-      setCommandStatus('idle');
-      setIsLoading(false);
       console.error('Erro ao enviar comando:', error);
       toast({
         title: "Erro",
         description: "Falha ao enviar comando ao relé",
         variant: "destructive"
       });
+    } finally {
+      setTimeout(() => setIsLoading(false), 500);
     }
   };
 
@@ -111,11 +77,18 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     }
 
     try {
-      await setRelayAuto(relayIndex);
+      const command = {
+        command: "set_auto",
+        payload: {
+          relay: relayIndex + 1
+        }
+      };
+      
+      await publish('aquasys/relay/command', command);
       
       toast({
         title: "Modo alterado",
-        description: `Relé ${relayIndex + 1} → AUTOMÁTICO`,
+        description: `Relé ${relayIndex + 1} retornado ao modo AUTOMÁTICO`,
       });
     } catch (error) {
       console.error('Erro ao definir modo auto:', error);
@@ -162,7 +135,6 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
   };
 
   const getModeLabel = (mode: string) => {
-    if (!mode) return 'Carregando...';
     const labels: { [key: string]: string } = {
       unused: 'Não usado',
       manual: 'Manual',
@@ -241,53 +213,37 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
           </div>
 
           
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Button
-                onClick={handleToggle}
-                disabled={isLoading || !isConnected}
-                className="flex-1 gap-2"
-                variant={isOn ? "destructive" : "default"}
-                title={isOn ? "Desligar relé" : "Ligar relé"}
-              >
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    Processando...
-                  </span>
-                ) : (
-                  <>
-                    {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                    {isOn ? 'Desligar' : 'Ligar'}
-                  </>
-                )}
-              </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleToggle}
+              disabled={isLoading || !isConnected}
+              className="flex-1 gap-2"
+              variant={isOn ? "destructive" : "default"}
+              title={isOn ? "Desligar relé" : "Ligar relé"}
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Processando...
+                </span>
+              ) : (
+                <>
+                  {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                  {isOn ? 'Desligar' : 'Ligar'}
+                </>
+              )}
+            </Button>
             
-              <Button
-                onClick={handleSetAuto}
-                disabled={isLoading || !isConnected}
-                variant="outline"
-                size="sm"
-                className="px-3"
-                title="Retornar ao modo automático"
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* ✅ Indicador de confirmação */}
-            {commandStatus === 'pending' && (
-              <div className="text-xs text-blue-600 dark:text-blue-400 animate-pulse flex items-center gap-1">
-                <div className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-ping" />
-                Aguardando confirmação do dispositivo...
-              </div>
-            )}
-            {commandStatus === 'confirmed' && (
-              <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                <div className="h-2 w-2 rounded-full bg-green-600 dark:bg-green-400" />
-                Comando confirmado pelo dispositivo!
-              </div>
-            )}
+            <Button
+              onClick={handleSetAuto}
+              disabled={isLoading || !isConnected}
+              variant="outline"
+              size="sm"
+              className="px-3"
+              title="Retornar ao modo automático"
+            >
+              <RefreshCcw className="h-4 w-4" />
+            </Button>
           </div>
 
           {!isConnected && (

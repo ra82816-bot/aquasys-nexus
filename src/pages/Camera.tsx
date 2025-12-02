@@ -1,131 +1,93 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { AppHeader } from "@/components/dashboard/AppHeader";
-import { MqttFooter } from "@/components/dashboard/MqttFooter";
 import { MqttProvider } from "@/contexts/MqttContext";
-import { supabase } from "@/integrations/supabase/client";
-import { Camera as CameraIcon, RefreshCw, AlertCircle, Settings, Eye, EyeOff } from "lucide-react";
+import { MqttFooter } from "@/components/dashboard/MqttFooter";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
-import { useCameraConfig } from "@/hooks/useCameraConfig";
+import { Badge } from "@/components/ui/badge";
+import { Camera as CameraIcon, RefreshCw, Settings, Video, VideoOff } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
-const Camera = () => {
+export default function Camera() {
   const navigate = useNavigate();
-  const imgRef = useRef<HTMLImageElement>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const [cameraUrl, setCameraUrl] = useState("http://esp32cam.local/stream");
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string>("");
   const [showSettings, setShowSettings] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const { config, updateConfig, resetToDefaults, getMjpegUrl, getSnapshotUrl } = useCameraConfig();
-
-  const fetchCameraStream = async () => {
-    try {
-      setIsLoading(true);
-      setError("");
-
-      const url = config.streamType === 'snapshot' ? getSnapshotUrl() : getMjpegUrl();
-      
-      // Construir autenticação Basic
-      const authHeader = `Basic ${btoa(`${config.username}:${config.password}`)}`;
-      
-      // Tentar acesso direto (funciona se câmera está na mesma rede)
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': authHeader,
-        },
-        mode: 'cors', // Tentará CORS primeiro
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Credenciais inválidas. Verifique usuário e senha.');
-        }
-        throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('multipart/x-mixed-replace')) {
-        // MJPEG stream contínuo
-        if (imgRef.current) {
-          // Para MJPEG, definir src diretamente com auth
-          imgRef.current.src = url.replace('http://', `http://${config.username}:${config.password}@`);
-          setIsConnected(true);
-        }
-      } else if (contentType?.includes('image/')) {
-        // Single snapshot
-        const blob = await response.blob();
-        if (imgRef.current) {
-          imgRef.current.src = URL.createObjectURL(blob);
-          setIsConnected(true);
-        }
-      } else {
-        throw new Error('Formato não suportado. Tente outro caminho de stream.');
-      }
-
-      setIsLoading(false);
-    } catch (err) {
-      let errorMessage = "Erro ao conectar à câmera";
-      
-      if (err instanceof Error) {
-        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-          errorMessage = "Não foi possível conectar. Certifique-se de que:\n1. A câmera está na mesma rede\n2. O IP está correto\n3. O caminho do stream está correto";
-        } else if (err.message.includes('CORS')) {
-          errorMessage = "Erro CORS. Você precisa:\n1. Ativar CORS nas configurações da câmera\nOU\n2. Usar o bridge Python local";
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      
-      console.error("Erro completo:", err);
-      setError(errorMessage);
-      setIsConnected(false);
-      setIsLoading(false);
-      toast.error(errorMessage);
-    }
-  };
-
-  const startSnapshotPolling = () => {
-    stopSnapshotPolling();
-    
-    fetchCameraStream();
-    
-    // Atualizar snapshot a cada 1 segundo
-    intervalRef.current = setInterval(() => {
-      fetchCameraStream();
-    }, 1000);
-  };
-
-  const stopSnapshotPolling = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
+  const [customUrl, setCustomUrl] = useState("");
+  const imgRef = useRef<HTMLImageElement>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
-    if (config.streamType === 'snapshot') {
-      startSnapshotPolling();
-    } else {
-      fetchCameraStream();
+    // Carregar URL salva do localStorage
+    const savedUrl = localStorage.getItem("esp32cam_url");
+    if (savedUrl) {
+      setCameraUrl(savedUrl);
+      setCustomUrl(savedUrl);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkConnection();
+    const interval = setInterval(checkConnection, 10000); // Verifica a cada 10s
+    return () => clearInterval(interval);
+  }, [cameraUrl]);
+
+  const checkConnection = () => {
+    if (imgRef.current) {
+      const img = imgRef.current;
+      if (img.complete && img.naturalHeight !== 0) {
+        setIsConnected(true);
+      } else {
+        setIsConnected(false);
+      }
+    }
+  };
+
+  const handleRefresh = () => {
+    setIsLoading(true);
+    if (imgRef.current) {
+      const timestamp = new Date().getTime();
+      imgRef.current.src = `${cameraUrl}?t=${timestamp}`;
+    }
+    setTimeout(() => setIsLoading(false), 1000);
+  };
+
+  const handleSaveUrl = () => {
+    if (!customUrl.trim()) {
+      toast({
+        title: "URL inválida",
+        description: "Por favor, insira uma URL válida",
+        variant: "destructive"
+      });
+      return;
     }
 
-    return () => {
-      stopSnapshotPolling();
-      if (imgRef.current?.src) {
-        URL.revokeObjectURL(imgRef.current.src);
-      }
-    };
-  }, [config]);
+    setCameraUrl(customUrl);
+    localStorage.setItem("esp32cam_url", customUrl);
+    setShowSettings(false);
+    
+    toast({
+      title: "URL salva",
+      description: "Configuração da câmera atualizada"
+    });
+    
+    handleRefresh();
+  };
+
+  const handleImageLoad = () => {
+    setIsConnected(true);
+    setIsLoading(false);
+  };
+
+  const handleImageError = () => {
+    setIsConnected(false);
+    setIsLoading(false);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -136,252 +98,152 @@ const Camera = () => {
     navigate(path);
   };
 
-  const handleReconnect = () => {
-    setError("");
-    setIsConnected(false);
-    if (config.streamType === 'snapshot') {
-      startSnapshotPolling();
-    } else {
-      fetchCameraStream();
-    }
-  };
-
   return (
     <MqttProvider>
-      <div className="min-h-screen bg-background">
-        <AppHeader 
-          onLogout={handleLogout}
-          onNavigate={handleNavigate}
-        />
+      <div className="min-h-screen bg-background pb-16">
+        <AppHeader onLogout={handleLogout} onNavigate={handleNavigate} />
         
-        <main className="container mx-auto p-4 space-y-4">
+        <main className="container mx-auto px-4 py-6 space-y-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CameraIcon className="h-6 w-6" />
-              <h1 className="text-2xl font-bold">Câmera IP</h1>
+            <div className="flex items-center gap-3">
+              <CameraIcon className="h-8 w-8 text-primary" />
+              <div>
+                <h1 className="text-3xl font-bold">Câmera ESP32-CAM</h1>
+                <p className="text-muted-foreground">Monitoramento em tempo real</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={isConnected ? "default" : "destructive"}>
-                {isConnected ? "Conectado" : "Desconectado"}
+              <Badge 
+                variant="outline"
+                className={`border ${
+                  isConnected 
+                    ? 'bg-green-500/10 text-green-500 border-green-500/20' 
+                    : 'bg-red-500/10 text-red-500 border-red-500/20'
+                }`}
+              >
+                {isConnected ? (
+                  <><Video className="h-3 w-3 mr-1" /> Conectado</>
+                ) : (
+                  <><VideoOff className="h-3 w-3 mr-1" /> Desconectado</>
+                )}
               </Badge>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setShowSettings(!showSettings)}
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleReconnect}
-                disabled={isLoading}
-              >
-                <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-              </Button>
             </div>
           </div>
 
-          {showSettings && (
+          {showSettings ? (
             <Card>
               <CardHeader>
-                <CardTitle>Configurações da Câmera</CardTitle>
-                <CardDescription>
-                  Configure o acesso à sua câmera IP
-                </CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Configurações da Câmera
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="ip">IP da Câmera</Label>
-                    <Input
-                      id="ip"
-                      value={config.ip}
-                      onChange={(e) => updateConfig({ ip: e.target.value })}
-                      placeholder="192.168.0.17"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="port">Porta</Label>
-                    <Input
-                      id="port"
-                      type="number"
-                      value={config.port}
-                      onChange={(e) => updateConfig({ port: parseInt(e.target.value) })}
-                      placeholder="80"
-                    />
+                <div>
+                  <Label htmlFor="cameraUrl">URL da Câmera ESP32-CAM</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Exemplos: http://192.168.1.100/stream ou http://esp32cam.local/stream
+                  </p>
+                  <Input
+                    id="cameraUrl"
+                    value={customUrl}
+                    onChange={(e) => setCustomUrl(e.target.value)}
+                    placeholder="http://esp32cam.local/stream"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleSaveUrl}>Salvar</Button>
+                  <Button variant="outline" onClick={() => setShowSettings(false)}>
+                    Cancelar
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Stream de Vídeo</CardTitle>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleRefresh}
+                      disabled={isLoading}
+                      variant="outline"
+                      size="sm"
+                    >
+                      {isLoading ? (
+                        <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      onClick={() => setShowSettings(true)}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="username">Usuário</Label>
-                    <Input
-                      id="username"
-                      value={config.username}
-                      onChange={(e) => updateConfig({ username: e.target.value })}
-                      placeholder="admin"
-                    />
-                  </div>
+              </CardHeader>
+              <CardContent>
+                <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+                  {isLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                      <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
                   
-                  <div>
-                    <Label htmlFor="password">Senha</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="password"
-                        type={showPassword ? "text" : "password"}
-                        value={config.password}
-                        onChange={(e) => updateConfig({ password: e.target.value })}
-                        placeholder="senha"
-                        className="flex-1"
-                      />
+                  {!isConnected && !isLoading && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
+                      <VideoOff className="h-16 w-16 mb-4" />
+                      <p className="text-lg font-medium">Câmera não conectada</p>
+                      <p className="text-sm">Verifique a URL e tente novamente</p>
                       <Button
+                        onClick={() => setShowSettings(true)}
                         variant="outline"
-                        size="icon"
-                        onClick={() => setShowPassword(!showPassword)}
-                        type="button"
+                        className="mt-4"
                       >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        <Settings className="h-4 w-4 mr-2" />
+                        Configurar
                       </Button>
                     </div>
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="streamType">Tipo de Stream</Label>
-                  <Select
-                    value={config.streamType}
-                    onValueChange={(value: 'mjpeg' | 'snapshot') => updateConfig({ streamType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mjpeg">MJPEG (Stream Contínuo)</SelectItem>
-                      <SelectItem value="snapshot">Snapshot (Imagens)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="streamPath">
-                    {config.streamType === 'mjpeg' ? 'Caminho do Stream' : 'Caminho do Snapshot'}
-                  </Label>
-                  <Input
-                    id="streamPath"
-                    value={config.streamType === 'mjpeg' ? config.streamPath : config.snapshotPath}
-                    onChange={(e) => updateConfig({ 
-                      [config.streamType === 'mjpeg' ? 'streamPath' : 'snapshotPath']: e.target.value 
-                    })}
-                    placeholder={config.streamType === 'mjpeg' ? '/video/mjpeg.cgi' : '/snapshot.jpg'}
+                  )}
+                  
+                  <img
+                    ref={imgRef}
+                    src={cameraUrl}
+                    alt="ESP32-CAM Stream"
+                    className="w-full h-full object-contain"
+                    onLoad={handleImageLoad}
+                    onError={handleImageError}
+                    style={{ display: isConnected ? 'block' : 'none' }}
                   />
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Caminhos comuns: /video/mjpeg.cgi, /mjpeg, /snapshot.jpg, /snap.jpg
-                  </p>
                 </div>
-
-                <div className="flex gap-2">
-                  <Button onClick={handleReconnect} className="flex-1">
-                    Aplicar e Conectar
-                  </Button>
-                  <Button onClick={resetToDefaults} variant="outline">
-                    Restaurar Padrões
-                  </Button>
-                </div>
+                
+                {isConnected && (
+                  <div className="mt-4 text-sm text-muted-foreground flex items-center justify-between">
+                    <span>Stream ativo: {cameraUrl}</span>
+                    <span className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                      Ao vivo
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
 
           <Card>
-            <CardContent className="p-0">
-              {error && (
-                <div className="p-4 bg-destructive/10 border-b border-destructive/20 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-destructive" />
-                  <p className="text-sm text-destructive">{error}</p>
-                </div>
-              )}
-              
-              <div className="relative aspect-video bg-muted">
-                {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center space-y-2">
-                      <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Conectando à câmera...</p>
-                    </div>
-                  </div>
-                )}
-                
-                {!isConnected && !isLoading && !error && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center space-y-4">
-                      <CameraIcon className="h-12 w-12 mx-auto text-muted-foreground" />
-                      <div className="space-y-2">
-                        <p className="text-sm text-muted-foreground">Configure sua câmera nas configurações acima</p>
-                        <Button onClick={() => setShowSettings(true)} variant="outline" size="sm">
-                          Abrir Configurações
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <img
-                  ref={imgRef}
-                  className="w-full h-full object-contain"
-                  alt="Stream da câmera"
-                  style={{ display: isConnected ? 'block' : 'none' }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
             <CardHeader>
-              <CardTitle>Como Usar</CardTitle>
+              <CardTitle className="text-sm">Instruções</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="space-y-2">
-                <p className="font-medium text-foreground">✅ Requisitos:</p>
-                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li>Câmera e dispositivo na <strong>mesma rede local</strong></li>
-                  <li>IP, porta e credenciais corretas</li>
-                  <li>Caminho do stream configurado</li>
-                </ul>
-              </div>
-
-              <div className="p-3 bg-muted rounded-lg space-y-2">
-                <p className="font-medium text-foreground">💡 Caminhos comuns por marca:</p>
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  <p><strong>Hikvision:</strong></p>
-                  <p className="pl-4">• MJPEG: /Streaming/channels/1/preview</p>
-                  <p className="pl-4">• Snapshot: /ISAPI/Streaming/channels/101/picture</p>
-                  
-                  <p className="mt-2"><strong>Dahua:</strong></p>
-                  <p className="pl-4">• Snapshot: /cgi-bin/snapshot.cgi</p>
-                  
-                  <p className="mt-2"><strong>Genérico:</strong></p>
-                  <p className="pl-4">• MJPEG: /video/mjpeg.cgi, /mjpeg, /video</p>
-                  <p className="pl-4">• Snapshot: /snapshot.jpg, /snap.jpg</p>
-                </div>
-              </div>
-
-              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg space-y-2">
-                <p className="font-medium text-yellow-600 dark:text-yellow-500">⚠️ Se não conectar:</p>
-                <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
-                  <li>Teste o IP no navegador: <code className="text-xs bg-muted px-1 py-0.5 rounded">http://{config.ip}</code></li>
-                  <li>Verifique se o caminho está correto</li>
-                  <li>Confirme usuário e senha</li>
-                  <li>Se erro CORS: ative CORS nas configurações da câmera</li>
-                </ol>
-              </div>
-
-              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                <p className="text-xs text-muted-foreground">
-                  <strong className="text-blue-600 dark:text-blue-500">ℹ️ Nota:</strong> A conexão é feita diretamente do seu navegador 
-                  para a câmera (sem usar servidores externos). Por isso, ambos precisam estar na mesma rede local.
-                </p>
-              </div>
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <p>• Certifique-se de que o módulo ESP32-CAM está ligado e conectado à mesma rede Wi-Fi</p>
+              <p>• Configure a URL correta da câmera nas configurações</p>
+              <p>• O stream pode usar MJPEG (Motion JPEG) ou snapshots periódicos</p>
+              <p>• Use o botão de atualizar para forçar um novo carregamento do stream</p>
             </CardContent>
           </Card>
         </main>
@@ -390,6 +252,4 @@ const Camera = () => {
       </div>
     </MqttProvider>
   );
-};
-
-export default Camera;
+}

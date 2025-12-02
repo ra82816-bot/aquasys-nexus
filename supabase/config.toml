@@ -6,9 +6,8 @@ verify_jwt = false
 [functions.mqtt-ping]
 verify_jwt = false
 
-# [functions.relay-control]
-# verify_jwt = false
-# DEPRECATED: Relay control agora é feito via MQTT direto do frontend
+[functions.relay-control]
+verify_jwt = false
 
 [functions.export-readings]
 verify_jwt = false
@@ -24,18 +23,3 @@ verify_jwt = false
 
 [functions.knowledge-search]
 verify_jwt = false
-
-[functions.camera-proxy]
-verify_jwt = false
-
-[functions.chart-insights]
-verify_jwt = false
-
-[functions.device-auth]
-verify_jwt = false
-
-[functions.device-pair]
-# Requires JWT to identify user
-
-[functions.device-unpair]
-# Requires JWT to identify user

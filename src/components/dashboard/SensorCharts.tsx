@@ -19,21 +19,15 @@ export const SensorCharts = () => {
   useEffect(() => {
     fetchHistoricalData();
 
-    // Subscribe to realtime updates with debounce (only update every 30 seconds)
-    let lastUpdate = Date.now();
+    // Subscribe to realtime updates
     const channel = supabase
       .channel("readings-realtime")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "readings" },
         () => {
-          const now = Date.now();
-          // Only update if 30 seconds have passed since last update
-          if (now - lastUpdate > 30000) {
-            console.log("Nova leitura recebida, atualizando gráficos...");
-            fetchHistoricalData();
-            lastUpdate = now;
-          }
+          console.log("Nova leitura recebida, atualizando gráficos...");
+          fetchHistoricalData();
         }
       )
       .subscribe();

@@ -1,6 +1,4 @@
-# AquaSys Nexus - Smart Hydroponic Monitoring System
-
-Sistema completo de monitoramento e automação para hidroponia com ESP32, sensores IoT, controle de relés e inteligência artificial.
+# Welcome to your Lovable project
 
 ## Project info
 
@@ -73,27 +71,3 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
-
----
-
-## 🔧 Troubleshooting ESP32
-
-### Problemas SSL/TLS (-9984)
-
-Se você encontrar erros de certificado SSL no ESP32:
-
-```
-(-9984) X509 - Certificate verification failed
-```
-
-**Soluções:**
-
-1. **Debug rápido**: Habilite `SSL_INSECURE_MODE = true` no firmware (apenas para diagnóstico)
-2. **Solução definitiva**: Verifique sincronização NTP antes da autenticação
-3. **Documentação completa**: Consulte [TROUBLESHOOTING-SSL.md](./TROUBLESHOOTING-SSL.md)
-
-### Outros Recursos
-
-- [BLE Setup Guide](./BLE-SETUP.md) - Configuração Bluetooth Low Energy
-- [MQTT Frontend Setup](./MQTT-FRONTEND-SETUP.md) - Integração MQTT no app
-- [Device Configuration](./GUIA-CONFIGURACAO-DISPOSITIVO.md) - Guia de configuração de dispositivos

@@ -272,224 +272,6 @@ export type Database = {
           },
         ]
       }
-      device_calibration_profiles: {
-        Row: {
-          calibration_data: Json
-          created_at: string | null
-          created_by: string | null
-          device_id: string | null
-          id: string
-          is_active: boolean | null
-          profile_name: string
-          sensor_type: string
-          updated_at: string | null
-        }
-        Insert: {
-          calibration_data: Json
-          created_at?: string | null
-          created_by?: string | null
-          device_id?: string | null
-          id?: string
-          is_active?: boolean | null
-          profile_name: string
-          sensor_type: string
-          updated_at?: string | null
-        }
-        Update: {
-          calibration_data?: Json
-          created_at?: string | null
-          created_by?: string | null
-          device_id?: string | null
-          id?: string
-          is_active?: boolean | null
-          profile_name?: string
-          sensor_type?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "device_calibration_profiles_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      device_commands: {
-        Row: {
-          command_data: Json
-          command_type: string
-          created_at: string | null
-          device_id: string | null
-          executed_at: string | null
-          id: string
-          status: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          command_data: Json
-          command_type: string
-          created_at?: string | null
-          device_id?: string | null
-          executed_at?: string | null
-          id?: string
-          status?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          command_data?: Json
-          command_type?: string
-          created_at?: string | null
-          device_id?: string | null
-          executed_at?: string | null
-          id?: string
-          status?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "device_commands_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      device_health: {
-        Row: {
-          device_id: string | null
-          free_heap: number | null
-          id: string
-          min_free_heap: number | null
-          mqtt_connected: boolean | null
-          mqtt_failed_attempts: number | null
-          mqtt_last_message_age_ms: number | null
-          sensor_ec_valid: boolean | null
-          sensor_humidity_valid: boolean | null
-          sensor_ph_valid: boolean | null
-          sensor_temp_valid: boolean | null
-          sensor_water_temp_valid: boolean | null
-          timestamp: string | null
-          uptime_seconds: number | null
-          wifi_ip: string | null
-          wifi_reconnects: number | null
-          wifi_rssi: number | null
-          wifi_ssid: string | null
-        }
-        Insert: {
-          device_id?: string | null
-          free_heap?: number | null
-          id?: string
-          min_free_heap?: number | null
-          mqtt_connected?: boolean | null
-          mqtt_failed_attempts?: number | null
-          mqtt_last_message_age_ms?: number | null
-          sensor_ec_valid?: boolean | null
-          sensor_humidity_valid?: boolean | null
-          sensor_ph_valid?: boolean | null
-          sensor_temp_valid?: boolean | null
-          sensor_water_temp_valid?: boolean | null
-          timestamp?: string | null
-          uptime_seconds?: number | null
-          wifi_ip?: string | null
-          wifi_reconnects?: number | null
-          wifi_rssi?: number | null
-          wifi_ssid?: string | null
-        }
-        Update: {
-          device_id?: string | null
-          free_heap?: number | null
-          id?: string
-          min_free_heap?: number | null
-          mqtt_connected?: boolean | null
-          mqtt_failed_attempts?: number | null
-          mqtt_last_message_age_ms?: number | null
-          sensor_ec_valid?: boolean | null
-          sensor_humidity_valid?: boolean | null
-          sensor_ph_valid?: boolean | null
-          sensor_temp_valid?: boolean | null
-          sensor_water_temp_valid?: boolean | null
-          timestamp?: string | null
-          uptime_seconds?: number | null
-          wifi_ip?: string | null
-          wifi_reconnects?: number | null
-          wifi_rssi?: number | null
-          wifi_ssid?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "device_health_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      device_owners: {
-        Row: {
-          device_id: string
-          paired_at: string | null
-          user_id: string | null
-        }
-        Insert: {
-          device_id: string
-          paired_at?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          device_id?: string
-          paired_at?: string | null
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "device_owners_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: true
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      devices: {
-        Row: {
-          created_at: string | null
-          device_type: Database["public"]["Enums"]["device_type"]
-          device_uuid: string
-          firmware_version: string | null
-          first_seen_at: string | null
-          id: string
-          last_seen_at: string | null
-          mqtt_password_hash: string
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          device_type: Database["public"]["Enums"]["device_type"]
-          device_uuid: string
-          firmware_version?: string | null
-          first_seen_at?: string | null
-          id?: string
-          last_seen_at?: string | null
-          mqtt_password_hash: string
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          device_type?: Database["public"]["Enums"]["device_type"]
-          device_uuid?: string
-          firmware_version?: string | null
-          first_seen_at?: string | null
-          id?: string
-          last_seen_at?: string | null
-          mqtt_password_hash?: string
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       event_logs: {
         Row: {
           id: number
@@ -841,44 +623,6 @@ export type Database = {
             columns: ["knowledge_id"]
             isOneToOne: false
             referencedRelation: "knowledge_base"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      mqtt_rate_limits: {
-        Row: {
-          blocked_until: string | null
-          created_at: string | null
-          device_id: string | null
-          endpoint: string
-          id: string
-          request_count: number | null
-          window_start: string | null
-        }
-        Insert: {
-          blocked_until?: string | null
-          created_at?: string | null
-          device_id?: string | null
-          endpoint: string
-          id?: string
-          request_count?: number | null
-          window_start?: string | null
-        }
-        Update: {
-          blocked_until?: string | null
-          created_at?: string | null
-          device_id?: string | null
-          endpoint?: string
-          id?: string
-          request_count?: number | null
-          window_start?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "mqtt_rate_limits_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
             referencedColumns: ["id"]
           },
         ]
@@ -1484,7 +1228,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      cleanup_old_rate_limits: { Args: never; Returns: undefined }
       get_ideal_parameters: {
         Args: {
           p_growth_stage: Database["public"]["Enums"]["growth_stage"]
@@ -1503,7 +1246,10 @@ export type Database = {
           water_temp_min: number
         }[]
       }
-      get_user_storage_usage: { Args: { p_user_id: string }; Returns: number }
+      get_user_storage_usage: {
+        Args: { p_user_id: string }
+        Returns: number
+      }
       search_knowledge_by_vector: {
         Args: {
           match_count?: number
@@ -1517,13 +1263,8 @@ export type Database = {
           similarity: number
         }[]
       }
-      user_owns_device: {
-        Args: { _device_id: string; _user_id: string }
-        Returns: boolean
-      }
     }
     Enums: {
-      device_type: "sensor" | "actuator"
       growth_stage:
         | "germination"
         | "seedling"
@@ -1696,7 +1437,6 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      device_type: ["sensor", "actuator"],
       growth_stage: [
         "germination",
         "seedling",
