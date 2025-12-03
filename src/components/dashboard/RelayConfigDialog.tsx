@@ -41,14 +41,48 @@ export const RelayConfigDialog = ({
   const { toast } = useToast();
   const { publishRelayConfig, isConnected } = useMqttContext();
 
+  // Inicializa formData quando config muda
   useEffect(() => {
     if (config) {
-      setMode(config.mode);
-      setFormData(config);
+      setMode(config.mode || "unused");
+      setFormData({
+        led_on_hour: config.led_on_hour ?? 6,
+        led_off_hour: config.led_off_hour ?? 0,
+        cycle_on_min: config.cycle_on_min ?? 15,
+        cycle_off_min: config.cycle_off_min ?? 15,
+        ph_pulse_sec: config.ph_pulse_sec ?? 5,
+        ph_threshold_low: config.ph_threshold_low ?? 5.8,
+        ph_threshold_high: config.ph_threshold_high ?? 6.5,
+        temp_threshold_on: config.temp_threshold_on ?? 28.0,
+        temp_threshold_off: config.temp_threshold_off ?? 26.0,
+        humidity_threshold_on: config.humidity_threshold_on ?? 75.0,
+        humidity_threshold_off: config.humidity_threshold_off ?? 65.0,
+        ec_threshold: config.ec_threshold ?? 1.2,
+        ec_pulse_sec: config.ec_pulse_sec ?? 5,
+      });
     }
   }, [config]);
 
-  const prepareMqttConfig = (mode: string, formData: Record<string, any>) => {
+  // Helper para lidar com inputs numéricos
+  const handleNumberChange = (field: string, value: string, isFloat = false) => {
+    if (value === '') {
+      setFormData({ ...formData, [field]: null });
+    } else {
+      const parsed = isFloat ? parseFloat(value) : parseInt(value, 10);
+      if (!isNaN(parsed)) {
+        setFormData({ ...formData, [field]: parsed });
+      }
+    }
+  };
+
+  // Retorna valor para exibição no input (trata null/undefined vs 0)
+  const getInputValue = (field: string): string => {
+    const val = formData[field];
+    if (val === null || val === undefined) return '';
+    return String(val);
+  };
+
+  const prepareMqttConfig = (mode: string, data: Record<string, any>) => {
     const modeMap: Record<string, number> = {
       'unused': 0,
       'led': 1,
@@ -62,45 +96,52 @@ export const RelayConfigDialog = ({
       'manual': 0
     };
 
+    // Usa ?? para preservar valores 0 válidos
     return {
-      mode: modeMap[mode] || 0,
-      led_on_hour: formData.led_on_hour || 6,
-      led_off_hour: formData.led_off_hour || 0,
-      cycle_on_min: formData.cycle_on_min || 15,
-      cycle_off_min: formData.cycle_off_min || 15,
-      ph_pulse_sec: formData.ph_pulse_sec || 5,
-      ph_threshold_low: formData.ph_threshold_low || 5.8,
-      ph_threshold_high: formData.ph_threshold_high || 6.5,
-      temp_threshold_on: formData.temp_threshold_on || 28.0,
-      temp_threshold_off: formData.temp_threshold_off || 26.0,
-      humidity_threshold_on: formData.humidity_threshold_on || 75.0,
-      humidity_threshold_off: formData.humidity_threshold_off || 65.0,
-      ec_threshold: formData.ec_threshold || 1200.0,
-      ec_pulse_sec: formData.ec_pulse_sec || 5
+      mode: modeMap[mode] ?? 0,
+      led_on_hour: data.led_on_hour ?? 6,
+      led_off_hour: data.led_off_hour ?? 0,
+      cycle_on_min: data.cycle_on_min ?? 15,
+      cycle_off_min: data.cycle_off_min ?? 15,
+      ph_pulse_sec: data.ph_pulse_sec ?? 5,
+      ph_threshold_low: data.ph_threshold_low ?? 5.8,
+      ph_threshold_high: data.ph_threshold_high ?? 6.5,
+      temp_threshold_on: data.temp_threshold_on ?? 28.0,
+      temp_threshold_off: data.temp_threshold_off ?? 26.0,
+      humidity_threshold_on: data.humidity_threshold_on ?? 75.0,
+      humidity_threshold_off: data.humidity_threshold_off ?? 65.0,
+      ec_threshold: data.ec_threshold ?? 1.2,
+      ec_pulse_sec: data.ec_pulse_sec ?? 5
     };
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Limpa valores undefined/NaN do formData
-      const cleanFormData: Record<string, any> = {};
-      Object.entries(formData).forEach(([key, value]) => {
-        if (value !== undefined && value !== '' && !Number.isNaN(value)) {
-          cleanFormData[key] = value;
+      // Prepara dados para salvar - inclui valores 0 mas remove null/undefined/NaN
+      const updateData: Record<string, any> = { mode, updated_at: new Date().toISOString() };
+      
+      // Campos numéricos relevantes para cada modo
+      const numericFields = [
+        'led_on_hour', 'led_off_hour', 'cycle_on_min', 'cycle_off_min',
+        'ph_pulse_sec', 'ph_threshold_low', 'ph_threshold_high',
+        'temp_threshold_on', 'temp_threshold_off',
+        'humidity_threshold_on', 'humidity_threshold_off',
+        'ec_threshold', 'ec_pulse_sec'
+      ];
+      
+      numericFields.forEach(field => {
+        const val = formData[field];
+        // Inclui 0, exclui null/undefined/NaN
+        if (val !== null && val !== undefined && !Number.isNaN(val)) {
+          updateData[field] = val;
         }
       });
-
-      const updateData = {
-        mode,
-        ...cleanFormData,
-        updated_at: new Date().toISOString()
-      };
 
       console.log('⚙️ CONFIG DEBUG - Salvando configuração do relé:', { 
         relayIndex, 
         mode,
-        formData: cleanFormData,
+        formData,
         updateData 
       });
 
@@ -118,7 +159,7 @@ export const RelayConfigDialog = ({
 
       // Enviar via MQTT para o ESP32
       if (isConnected) {
-        const mqttConfig = prepareMqttConfig(mode, cleanFormData);
+        const mqttConfig = prepareMqttConfig(mode, formData);
         console.log('📤 CONFIG DEBUG - Enviando via MQTT:', {
           relayIndex,
           mqttConfig
@@ -163,8 +204,8 @@ export const RelayConfigDialog = ({
                 type="number"
                 min="0"
                 max="23"
-                value={formData.led_on_hour || ""}
-                onChange={(e) => setFormData({ ...formData, led_on_hour: parseInt(e.target.value) })}
+                value={getInputValue('led_on_hour')}
+                onChange={(e) => handleNumberChange('led_on_hour', e.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -173,8 +214,8 @@ export const RelayConfigDialog = ({
                 type="number"
                 min="0"
                 max="23"
-                value={formData.led_off_hour || ""}
-                onChange={(e) => setFormData({ ...formData, led_off_hour: parseInt(e.target.value) })}
+                value={getInputValue('led_off_hour')}
+                onChange={(e) => handleNumberChange('led_off_hour', e.target.value)}
               />
             </div>
           </>
@@ -187,8 +228,8 @@ export const RelayConfigDialog = ({
               <Input
                 type="number"
                 min="1"
-                value={formData.cycle_on_min || ""}
-                onChange={(e) => setFormData({ ...formData, cycle_on_min: parseInt(e.target.value) })}
+                value={getInputValue('cycle_on_min')}
+                onChange={(e) => handleNumberChange('cycle_on_min', e.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -196,8 +237,8 @@ export const RelayConfigDialog = ({
               <Input
                 type="number"
                 min="1"
-                value={formData.cycle_off_min || ""}
-                onChange={(e) => setFormData({ ...formData, cycle_off_min: parseInt(e.target.value) })}
+                value={getInputValue('cycle_off_min')}
+                onChange={(e) => handleNumberChange('cycle_off_min', e.target.value)}
               />
             </div>
           </>
@@ -206,14 +247,14 @@ export const RelayConfigDialog = ({
         return (
           <>
             <div className="space-y-2">
-              <Label>pH Mínimo</Label>
+              <Label>pH Mínimo (ativa quando pH menor)</Label>
               <Input
                 type="number"
                 step="0.1"
                 min="0"
                 max="14"
-                value={formData.ph_threshold_low || ""}
-                onChange={(e) => setFormData({ ...formData, ph_threshold_low: parseFloat(e.target.value) })}
+                value={getInputValue('ph_threshold_low')}
+                onChange={(e) => handleNumberChange('ph_threshold_low', e.target.value, true)}
               />
             </div>
             <div className="space-y-2">
@@ -221,8 +262,8 @@ export const RelayConfigDialog = ({
               <Input
                 type="number"
                 min="1"
-                value={formData.ph_pulse_sec || ""}
-                onChange={(e) => setFormData({ ...formData, ph_pulse_sec: parseInt(e.target.value) })}
+                value={getInputValue('ph_pulse_sec')}
+                onChange={(e) => handleNumberChange('ph_pulse_sec', e.target.value)}
               />
             </div>
           </>
@@ -231,14 +272,14 @@ export const RelayConfigDialog = ({
         return (
           <>
             <div className="space-y-2">
-              <Label>pH Máximo</Label>
+              <Label>pH Máximo (ativa quando pH maior)</Label>
               <Input
                 type="number"
                 step="0.1"
                 min="0"
                 max="14"
-                value={formData.ph_threshold_high || ""}
-                onChange={(e) => setFormData({ ...formData, ph_threshold_high: parseFloat(e.target.value) })}
+                value={getInputValue('ph_threshold_high')}
+                onChange={(e) => handleNumberChange('ph_threshold_high', e.target.value, true)}
               />
             </div>
             <div className="space-y-2">
@@ -246,8 +287,8 @@ export const RelayConfigDialog = ({
               <Input
                 type="number"
                 min="1"
-                value={formData.ph_pulse_sec || ""}
-                onChange={(e) => setFormData({ ...formData, ph_pulse_sec: parseInt(e.target.value) })}
+                value={getInputValue('ph_pulse_sec')}
+                onChange={(e) => handleNumberChange('ph_pulse_sec', e.target.value)}
               />
             </div>
           </>
@@ -256,21 +297,21 @@ export const RelayConfigDialog = ({
         return (
           <>
             <div className="space-y-2">
-              <Label>Temperatura Máxima (°C)</Label>
+              <Label>Ligar quando temperatura ≥ (°C)</Label>
               <Input
                 type="number"
                 step="0.1"
-                value={formData.temp_threshold_on || ""}
-                onChange={(e) => setFormData({ ...formData, temp_threshold_on: parseFloat(e.target.value) })}
+                value={getInputValue('temp_threshold_on')}
+                onChange={(e) => handleNumberChange('temp_threshold_on', e.target.value, true)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Temperatura Mínima (°C)</Label>
+              <Label>Desligar quando temperatura ≤ (°C)</Label>
               <Input
                 type="number"
                 step="0.1"
-                value={formData.temp_threshold_off || ""}
-                onChange={(e) => setFormData({ ...formData, temp_threshold_off: parseFloat(e.target.value) })}
+                value={getInputValue('temp_threshold_off')}
+                onChange={(e) => handleNumberChange('temp_threshold_off', e.target.value, true)}
               />
             </div>
           </>
@@ -279,25 +320,25 @@ export const RelayConfigDialog = ({
         return (
           <>
             <div className="space-y-2">
-              <Label>Umidade Máxima (%)</Label>
+              <Label>Ligar quando umidade ≥ (%)</Label>
               <Input
                 type="number"
                 step="0.1"
                 min="0"
                 max="100"
-                value={formData.humidity_threshold_on || ""}
-                onChange={(e) => setFormData({ ...formData, humidity_threshold_on: parseFloat(e.target.value) })}
+                value={getInputValue('humidity_threshold_on')}
+                onChange={(e) => handleNumberChange('humidity_threshold_on', e.target.value, true)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Umidade Mínima (%)</Label>
+              <Label>Desligar quando umidade ≤ (%)</Label>
               <Input
                 type="number"
                 step="0.1"
                 min="0"
                 max="100"
-                value={formData.humidity_threshold_off || ""}
-                onChange={(e) => setFormData({ ...formData, humidity_threshold_off: parseFloat(e.target.value) })}
+                value={getInputValue('humidity_threshold_off')}
+                onChange={(e) => handleNumberChange('humidity_threshold_off', e.target.value, true)}
               />
             </div>
           </>
@@ -306,12 +347,12 @@ export const RelayConfigDialog = ({
         return (
           <>
             <div className="space-y-2">
-              <Label>EC Mínimo (µS/cm)</Label>
+              <Label>EC Mínimo (ativa quando EC menor)</Label>
               <Input
                 type="number"
-                step="0.1"
-                value={formData.ec_threshold || ""}
-                onChange={(e) => setFormData({ ...formData, ec_threshold: parseFloat(e.target.value) })}
+                step="0.01"
+                value={getInputValue('ec_threshold')}
+                onChange={(e) => handleNumberChange('ec_threshold', e.target.value, true)}
               />
             </div>
             <div className="space-y-2">
@@ -319,8 +360,8 @@ export const RelayConfigDialog = ({
               <Input
                 type="number"
                 min="1"
-                value={formData.ec_pulse_sec || ""}
-                onChange={(e) => setFormData({ ...formData, ec_pulse_sec: parseInt(e.target.value) })}
+                value={getInputValue('ec_pulse_sec')}
+                onChange={(e) => handleNumberChange('ec_pulse_sec', e.target.value)}
               />
             </div>
           </>
