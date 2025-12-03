@@ -27,11 +27,24 @@ export const MqttProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-// Custom hook to use MQTT context with error checking
+// Fallback context for when provider is not available (e.g., during HMR)
+const fallbackContext: MqttContextType = {
+  isConnected: false,
+  lastMessage: null,
+  publish: async () => { console.warn('MQTT: Provider não disponível'); },
+  publishRelayCommand: async () => { console.warn('MQTT: Provider não disponível'); },
+  publishRelayConfig: async () => { console.warn('MQTT: Provider não disponível'); },
+  setRelayAuto: async () => { console.warn('MQTT: Provider não disponível'); },
+  connect: () => { console.warn('MQTT: Provider não disponível'); },
+  disconnect: () => { console.warn('MQTT: Provider não disponível'); },
+};
+
+// Custom hook to use MQTT context with graceful fallback
 export const useMqttContext = () => {
   const context = useContext(MqttContext);
   if (!context) {
-    throw new Error('useMqttContext deve ser usado dentro de MqttProvider');
+    console.warn('useMqttContext: Contexto não encontrado, usando fallback');
+    return fallbackContext;
   }
   return context;
 };
