@@ -160,64 +160,64 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, config, onNameUpdate }
 
     switch (mode) {
       case 'led':
-        if (config.led_on_hour != null && config.led_off_hour != null) {
+        if (config.led_on_hour !== null && config.led_on_hour !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              {String(config.led_on_hour).padStart(2, '0')}:00 - {String(config.led_off_hour).padStart(2, '0')}:00
+            <span className="text-xs text-muted-foreground block mt-1">
+              Liga: {String(config.led_on_hour).padStart(2, '0')}:00 → Desliga: {String(config.led_off_hour ?? 0).padStart(2, '0')}:00
             </span>
           );
         }
         break;
       case 'cycle':
-        if (config.cycle_on_min && config.cycle_off_min) {
+        if (config.cycle_on_min !== null && config.cycle_on_min !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              {config.cycle_on_min}min ON / {config.cycle_off_min}min OFF
+            <span className="text-xs text-muted-foreground block mt-1">
+              {config.cycle_on_min}min ON / {config.cycle_off_min ?? 15}min OFF
             </span>
           );
         }
         break;
       case 'ph_up':
-        if (config.ph_threshold_low != null) {
+        if (config.ph_threshold_low !== null && config.ph_threshold_low !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              pH &lt; {config.ph_threshold_low} → Pulso {config.ph_pulse_sec}s
+            <span className="text-xs text-muted-foreground block mt-1">
+              pH &lt; {config.ph_threshold_low} → Pulso {config.ph_pulse_sec ?? 5}s
             </span>
           );
         }
         break;
       case 'ph_down':
-        if (config.ph_threshold_high != null) {
+        if (config.ph_threshold_high !== null && config.ph_threshold_high !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              pH &gt; {config.ph_threshold_high} → Pulso {config.ph_pulse_sec}s
+            <span className="text-xs text-muted-foreground block mt-1">
+              pH &gt; {config.ph_threshold_high} → Pulso {config.ph_pulse_sec ?? 5}s
             </span>
           );
         }
         break;
       case 'temperature':
-        if (config.temp_threshold_on != null && config.temp_threshold_off != null) {
+        if (config.temp_threshold_on !== null && config.temp_threshold_on !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              {config.temp_threshold_off}°C - {config.temp_threshold_on}°C
+            <span className="text-xs text-muted-foreground block mt-1">
+              Liga ≥{config.temp_threshold_on}°C / Desliga ≤{config.temp_threshold_off ?? 26}°C
             </span>
           );
         }
         break;
       case 'humidity':
-        if (config.humidity_threshold_on != null && config.humidity_threshold_off != null) {
+        if (config.humidity_threshold_on !== null && config.humidity_threshold_on !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              {config.humidity_threshold_off}% - {config.humidity_threshold_on}%
+            <span className="text-xs text-muted-foreground block mt-1">
+              Liga ≥{config.humidity_threshold_on}% / Desliga ≤{config.humidity_threshold_off ?? 65}%
             </span>
           );
         }
         break;
       case 'ec':
-        if (config.ec_threshold != null) {
+        if (config.ec_threshold !== null && config.ec_threshold !== undefined) {
           return (
-            <span className="text-xs text-muted-foreground">
-              EC &lt; {config.ec_threshold} → Pulso {config.ec_pulse_sec}s
+            <span className="text-xs text-muted-foreground block mt-1">
+              EC &lt; {config.ec_threshold} → Pulso {config.ec_pulse_sec ?? 5}s
             </span>
           );
         }
