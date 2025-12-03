@@ -1,6 +1,6 @@
 /*****************************************************************************************
  * AquaSys / HydroSmart - Módulo Atuador ESP32
- * Versão: v3.5 PHASE1 (03/12/2025)
+ * Versão: v3.5 PHASE1.1 (03/12/2025)
  * 
  * 🔧 Melhorias desta versão:
  * - ✅ MODE_LED e MODE_CYCLE funcionam INDEPENDENTE de sensores válidos
@@ -16,6 +16,11 @@
  * - ✅ Watchdog de 20 segundos
  * - ✅ Reconexão exponencial com buffer offline
  * - ✅ Persistência NVS de estados e configurações
+ * - ✅ NOVO: Modo FAILSAFE independente de rede
+ *      - Ativa após 60s sem MQTT
+ *      - LED (Relé 0): schedule 6:00-22:00
+ *      - Relés 1-3: ciclo 15/15 minutos
+ *      - Relés 4-7: desligados por segurança
  *
  * 100% compatível com o app React atualizado
  *****************************************************************************************/
@@ -57,6 +62,14 @@ const unsigned long NTP_UPDATE_INTERVAL = 3600000UL; // 1h
 const unsigned long AUTO_UPDATE_INTERVAL = 2000UL; // 2s
 const unsigned long SENSOR_SAMPLE_INTERVAL = 60000UL; // 1 min - coleta amostras de sensor
 #define UTC_OFFSET_SECONDS -10800 // -3h (BR)
+
+// ----------------------------- FAILSAFE CONFIG ----------------------------------------
+// Configuração padrão de failsafe (funciona SEM conexão de rede)
+const int FAILSAFE_LED_ON_HOUR = 6;          // Liga às 6:00
+const int FAILSAFE_LED_OFF_HOUR = 22;        // Desliga às 22:00
+const int FAILSAFE_CYCLE_ON_MIN = 15;        // Ciclo: 15 min ligado
+const int FAILSAFE_CYCLE_OFF_MIN = 15;       // Ciclo: 15 min desligado
+const unsigned long NETWORK_TIMEOUT_MS = 60000UL; // 1 minuto sem MQTT = failsafe
 
 // ----------------------------- 24H AVERAGE CONFIG ------------------------------------
 #define SENSOR_HISTORY_SIZE 1440  // 24h * 60 amostras/hora (1 por minuto)
@@ -126,6 +139,12 @@ SensorAverages sensor24hAvg = {0, 0, 0, 0, 0, false, 0};
 bool dailyActionExecuted[8] = {false};
 int lastActionDay = -1;
 
+// ----------------------------- FAILSAFE STATE ----------------------------------------
+bool networkFailsafeActive = false;
+unsigned long lastSuccessfulMqttMs = 0;
+unsigned long failsafeStartMs = 0;
+bool failsafeInitialized = false;
+
 // ----------------------------- RELAY CONFIG ------------------------------------------
 enum RelayMode {
   MODE_UNUSED=0, MODE_LED=1, MODE_CYCLE=2,
@@ -172,6 +191,7 @@ unsigned long lastHeartbeatMs = 0;
 unsigned long lastNtpUpdateMs = 0;
 unsigned long lastAutoUpdateMs = 0;
 unsigned long lastLogClearMs = 0;
+unsigned long lastWifiAttemptMs = 0;
 bool ntpInitialized = false;
 
 // ----------------------------- UTILITIES ---------------------------------------------
@@ -181,12 +201,14 @@ void logMessage(const char* level, const char* msg) {
   char buf[256];
   snprintf(buf, sizeof(buf), "[%s] %lu %s", level, millis(), msg);
   logBuffer[logIndex++ % LOG_CAPACITY] = String(buf);
+  Serial.println(buf);
   
   if (mqttClient.connected()) {
     StaticJsonDocument<256> d;
     d["level"] = level;
     d["msg"] = msg;
     d["uptime_ms"] = millis();
+    d["failsafe"] = networkFailsafeActive;
     String out; 
     serializeJson(d, out);
     mqttClient.publish(TOPIC_LOGS, out.c_str(), false);
@@ -414,6 +436,20 @@ void setupWifi() {
   }
 }
 
+// Tenta reconectar WiFi sem bloquear
+void tryWifiReconnect() {
+  unsigned long now = millis();
+  if (now - lastWifiAttemptMs < 10000) return; // A cada 10 segundos
+  
+  lastWifiAttemptMs = now;
+  
+  if (ssid_sta.length() > 0) {
+    WiFi.disconnect();
+    WiFi.begin(ssid_sta.c_str(), password_sta.c_str());
+    logMessage("INFO", "Tentando reconectar WiFi...");
+  }
+}
+
 // ----------------------------- MQTT ---------------------------------------------------
 void enqueueOutgoing(const char* topic, const String& payload) {
   if (outboxCount >= OUTBOX_CAPACITY) {
@@ -439,10 +475,13 @@ void flushOutbox() {
 }
 
 void publishRelayStatus(bool retained = true) {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   for (int i=0; i<8; i++) {
     doc["relay"+String(i+1)] = relayStates[i];
   }
+  doc["failsafe_active"] = networkFailsafeActive;
+  doc["uptime_ms"] = millis();
+  
   String out;
   serializeJson(doc, out);
   
@@ -465,7 +504,10 @@ void updateRelayNonBlocking(int relayIndex, bool state) {
   preferences.putBool(("relay_state_"+String(relayIndex)).c_str(), relayStates[relayIndex]);
   preferences.end();
   
-  publishRelayStatus(true);
+  // Só publica se não estiver em failsafe ou se MQTT conectado
+  if (mqttClient.connected()) {
+    publishRelayStatus(true);
+  }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -573,8 +615,111 @@ void mqttReconnect() {
     flushOutbox();
     publishRelayStatus(true);
     logMessage("INFO", "MQTT connected");
+    
+    // Atualizar timestamp de conexão bem-sucedida
+    lastSuccessfulMqttMs = now;
   } else {
     mqttReconnectDelay = min(mqttReconnectDelay * 2, MQTT_RECONNECT_MAX);
+  }
+}
+
+// ----------------------------- FAILSAFE MODE -----------------------------------------
+
+// Controla relés de forma independente quando rede está indisponível
+void runFailsafeMode() {
+  unsigned long now = millis();
+  
+  // ===== RELÉ 0: LED em schedule 6:00-22:00 =====
+  if (ntpInitialized) {
+    // Usa NTP se disponível
+    int h = timeClient.getHours();
+    bool ledShouldBeOn = (h >= FAILSAFE_LED_ON_HOUR && h < FAILSAFE_LED_OFF_HOUR);
+    
+    if (relayStates[0] != ledShouldBeOn) {
+      updateRelayNonBlocking(0, ledShouldBeOn);
+      char logBuf[64];
+      snprintf(logBuf, sizeof(logBuf), "FAILSAFE LED: %s (h=%d)", ledShouldBeOn ? "ON" : "OFF", h);
+      logMessage("FAILSAFE", logBuf);
+    }
+  } else {
+    // Sem NTP: usa ciclo 16h ON / 8h OFF baseado em millis
+    unsigned long failsafeElapsed = now - failsafeStartMs;
+    unsigned long cyclePosition = failsafeElapsed % (24UL * 3600000UL); // Posição no ciclo de 24h
+    
+    // 16 horas ligado (57.6M ms), 8 horas desligado
+    bool ledShouldBeOn = (cyclePosition < (16UL * 3600000UL));
+    
+    if (relayStates[0] != ledShouldBeOn) {
+      updateRelayNonBlocking(0, ledShouldBeOn);
+      logMessage("FAILSAFE", ledShouldBeOn ? "LED ON (millis cycle)" : "LED OFF (millis cycle)");
+    }
+  }
+  
+  // ===== RELÉS 1, 2, 3: Ciclo 15/15 minutos =====
+  for (int i = 1; i <= 3; i++) {
+    // Inicializar timestamp se necessário
+    if (cycle_last_toggle_ms[i] == 0) {
+      cycle_last_toggle_ms[i] = now;
+    }
+    
+    unsigned long elapsed = now - cycle_last_toggle_ms[i];
+    unsigned long threshold = relayStates[i] ? 
+      (FAILSAFE_CYCLE_ON_MIN * 60000UL) : 
+      (FAILSAFE_CYCLE_OFF_MIN * 60000UL);
+    
+    if (elapsed >= threshold) {
+      bool newState = !relayStates[i];
+      updateRelayNonBlocking(i, newState);
+      cycle_last_toggle_ms[i] = now;
+      
+      char logBuf[64];
+      snprintf(logBuf, sizeof(logBuf), "FAILSAFE cycle relay %d: %s", i, newState ? "ON" : "OFF");
+      logMessage("FAILSAFE", logBuf);
+    }
+  }
+  
+  // ===== RELÉS 4-7: Desativados no failsafe por segurança =====
+  for (int i = 4; i <= 7; i++) {
+    if (relayStates[i]) {
+      updateRelayNonBlocking(i, false);
+      char logBuf[64];
+      snprintf(logBuf, sizeof(logBuf), "FAILSAFE: relay %d disabled", i);
+      logMessage("FAILSAFE", logBuf);
+    }
+  }
+}
+
+// Verifica status da rede e ativa/desativa modo failsafe
+void checkNetworkStatus() {
+  unsigned long now = millis();
+  
+  // Verificar se MQTT está conectado
+  if (mqttClient.connected()) {
+    lastSuccessfulMqttMs = now;
+    
+    if (networkFailsafeActive) {
+      networkFailsafeActive = false;
+      failsafeInitialized = false;
+      logMessage("INFO", "Exiting FAILSAFE mode - MQTT reconnected");
+      
+      // Publicar status atualizado
+      publishRelayStatus(true);
+    }
+  } 
+  // Verificar timeout - ativa failsafe após 60s sem MQTT
+  else if (now - lastSuccessfulMqttMs > NETWORK_TIMEOUT_MS) {
+    if (!networkFailsafeActive) {
+      networkFailsafeActive = true;
+      failsafeStartMs = now;
+      failsafeInitialized = true;
+      
+      // Resetar ciclos para failsafe
+      for (int i = 0; i < 8; i++) {
+        cycle_last_toggle_ms[i] = now;
+      }
+      
+      logMessage("WARN", "Entering FAILSAFE mode - network timeout (60s)");
+    }
   }
 }
 
@@ -806,8 +951,9 @@ void registerWatchdogs() {
 // ----------------------------- SETUP / LOOP ------------------------------------------
 void setup() {
   Serial.begin(115200);
+  Serial.println("\n\n=== HydroSmart Actuator v3.5 PHASE1.1 ===");
   
-  // Configurar relés
+  // Configurar relés PRIMEIRO (antes de qualquer coisa)
   for (int i=0; i<8; i++) {
     pinMode(relayPins[i], OUTPUT);
     digitalWrite(relayPins[i], HIGH); // Relé desligado (lógica invertida)
@@ -815,6 +961,19 @@ void setup() {
   
   // Carregar configurações
   loadConfig();
+  
+  // ===== INICIALIZAR FAILSAFE ANTES DE TENTAR CONEXÃO =====
+  // Isso garante que os relés funcionem mesmo se WiFi nunca conectar
+  unsigned long now = millis();
+  lastSuccessfulMqttMs = now;
+  failsafeStartMs = now;
+  
+  // Inicializar ciclos para failsafe
+  for (int i = 0; i < 8; i++) {
+    cycle_last_toggle_ms[i] = now;
+  }
+  
+  Serial.println("Failsafe state initialized");
   
   // Configurar WiFi
   if (digitalRead(SETUP_BUTTON_PIN) == LOW) {
@@ -836,71 +995,73 @@ void setup() {
     digitalWrite(relayPins[i], relayStates[i] ? LOW : HIGH);
   }
   
-  // Inicializar ciclos
-  unsigned long now = millis();
-  for (int i = 0; i < 8; i++) {
-    cycle_last_toggle_ms[i] = now;
-  }
-  
   publishRelayStatus(true);
-  logMessage("INFO", "Sistema inicializado - v3.5 PHASE1");
+  logMessage("INFO", "Sistema inicializado - v3.5 PHASE1.1 com FAILSAFE");
 }
 
 void loop() {
   esp_task_wdt_reset();
   
+  // Modo AP para configuração
   if (initialSetupMode) {
     server.handleClient();
     return;
   }
   
-  // Manter WiFi conectado
-  if (WiFi.status() != WL_CONNECTED) {
-    setupWifi();
-    delay(200);
-    return;
-  }
-  
-  // Atualizar NTP periodicamente
   unsigned long now = millis();
-  if (ntpInitialized && (now - lastNtpUpdateMs > NTP_UPDATE_INTERVAL)) {
-    timeClient.update();
-    lastNtpUpdateMs = now;
-  }
   
-  // Manter MQTT conectado
-  if (!mqttClient.connected()) {
-    mqttReconnect();
+  // ===== VERIFICAR STATUS DA REDE E FAILSAFE =====
+  checkNetworkStatus();
+  
+  // ===== TENTAR MANTER CONEXÕES (não bloqueante) =====
+  if (WiFi.status() != WL_CONNECTED) {
+    // Tentar reconectar WiFi sem bloquear
+    tryWifiReconnect();
   } else {
-    mqttClient.loop();
+    // WiFi conectado - atualizar NTP e MQTT
+    if (ntpInitialized && (now - lastNtpUpdateMs > NTP_UPDATE_INTERVAL)) {
+      timeClient.update();
+      lastNtpUpdateMs = now;
+    }
+    
+    if (!mqttClient.connected()) {
+      mqttReconnect();
+    } else {
+      mqttClient.loop();
+    }
   }
   
-  // Coletar amostras de sensores para histórico
-  addSensorSample();
-  
-  // Calcular médias de 24h (a cada hora ou quando necessário)
-  static unsigned long lastAvgCalcMs = 0;
-  if (now - lastAvgCalcMs > 3600000UL) { // 1 hora
-    calculate24hAverages();
-    lastAvgCalcMs = now;
-  }
-  
-  // Atualizar lógica automática
+  // ===== EXECUTAR LÓGICA DOS RELÉS =====
   if (now - lastAutoUpdateMs > AUTO_UPDATE_INTERVAL) {
-    // 1. Modos independentes (LED, CYCLE) - executam sempre
-    updateIndependentModes();
-    
-    // 2. Modos com sensores - executam apenas ao meio-dia
-    updateSensorDependentModes();
-    
-    // 3. Processar pulsos ativos
-    processPulses();
+    if (networkFailsafeActive) {
+      // 🔴 MODO FAILSAFE: usa configuração fixa de emergência
+      runFailsafeMode();
+    } else {
+      // 🟢 MODO NORMAL: usa configurações do app
+      updateIndependentModes();
+      updateSensorDependentModes();
+    }
     
     lastAutoUpdateMs = now;
   }
   
-  // Heartbeat periódico
-  if (now - lastHeartbeatMs > HEARTBEAT_INTERVAL) {
+  // Processar pulsos (funciona em ambos os modos)
+  processPulses();
+  
+  // Coletar amostras de sensores para histórico (só se não estiver em failsafe)
+  if (!networkFailsafeActive) {
+    addSensorSample();
+  }
+  
+  // Calcular médias de 24h
+  static unsigned long lastAvgCalcMs = 0;
+  if (now - lastAvgCalcMs > 3600000UL) {
+    calculate24hAverages();
+    lastAvgCalcMs = now;
+  }
+  
+  // Heartbeat periódico (quando MQTT conectado)
+  if (mqttClient.connected() && (now - lastHeartbeatMs > HEARTBEAT_INTERVAL)) {
     publishRelayStatus(true);
     lastHeartbeatMs = now;
   }
