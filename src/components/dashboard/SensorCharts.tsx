@@ -19,21 +19,15 @@ export const SensorCharts = () => {
   useEffect(() => {
     fetchHistoricalData();
 
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel("readings-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "readings" },
-        () => {
-          console.log("Nova leitura recebida, atualizando gráficos...");
-          fetchHistoricalData();
-        }
-      )
-      .subscribe();
+    // Atualização a cada 2 minutos em vez de realtime
+    // Isso evita atualizações excessivas que dificultam a visualização
+    const interval = setInterval(() => {
+      console.log("⏰ Atualizando gráficos (intervalo 2 min)...");
+      fetchHistoricalData();
+    }, 120000); // 2 minutos
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, [startDate, endDate]);
 
