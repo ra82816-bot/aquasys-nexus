@@ -10,35 +10,90 @@ export interface MqttMessage {
   timestamp: Date;
 }
 
+interface ConnectionState {
+  attempts: number;
+  lastAttempt: Date | null;
+  nextRetryIn: number;
+}
+
+const MAX_RETRY_ATTEMPTS = 10;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+const MAX_RETRY_DELAY = 60000; // 60 seconds
+
 export const useMqtt = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<MqttMessage | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>({
+    attempts: 0,
+    lastAttempt: null,
+    nextRetryIn: INITIAL_RETRY_DELAY,
+  });
   const clientRef = useRef<MqttClient | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isConnectingRef = useRef(false);
   const { toast } = useToast();
 
+  // Calculate exponential backoff delay
+  const getBackoffDelay = useCallback((attempt: number): number => {
+    const delay = Math.min(
+      INITIAL_RETRY_DELAY * Math.pow(2, attempt),
+      MAX_RETRY_DELAY
+    );
+    // Add jitter (±20%)
+    const jitter = delay * 0.2 * (Math.random() - 0.5);
+    return Math.round(delay + jitter);
+  }, []);
+
+  const clearRetryTimeout = useCallback(() => {
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+  }, []);
+
   const connect = useCallback(() => {
-    if (clientRef.current?.connected) {
-      console.log('MQTT já conectado');
+    // Prevent multiple simultaneous connection attempts
+    if (isConnectingRef.current || clientRef.current?.connected) {
+      console.log('MQTT: Conexão já em andamento ou conectado');
       return;
     }
 
-    console.log('Conectando ao broker MQTT...');
+    isConnectingRef.current = true;
+    clearRetryTimeout();
+
+    console.log(`🔌 MQTT: Tentativa de conexão #${connectionState.attempts + 1}`);
     
     const client = mqtt.connect(MQTT_CONFIG.broker, {
       clientId: MQTT_CONFIG.clientId,
       username: MQTT_CONFIG.username,
       password: MQTT_CONFIG.password,
       clean: true,
-      reconnectPeriod: 5000,
-      connectTimeout: 30000,
+      reconnectPeriod: 0, // Disable auto-reconnect, we'll handle it manually
+      connectTimeout: 15000, // Reduced from 30s to 15s
       keepalive: 60,
     });
 
+    const connectionTimeout = setTimeout(() => {
+      if (!client.connected) {
+        console.log('⏱️ MQTT: Timeout de conexão');
+        client.end(true);
+        handleConnectionFailure();
+      }
+    }, 20000);
+
     client.on('connect', () => {
+      clearTimeout(connectionTimeout);
+      isConnectingRef.current = false;
+      
       console.log('✅ MQTT conectado!');
       setIsConnected(true);
+      setConnectionState({
+        attempts: 0,
+        lastAttempt: new Date(),
+        nextRetryIn: INITIAL_RETRY_DELAY,
+      });
       
-      // Subscribe nos tópicos relevantes
+      // Subscribe to relevant topics
       const topics = [
         MQTT_CONFIG.topics.sensors,
         MQTT_CONFIG.topics.relayStatus,
@@ -47,8 +102,6 @@ export const useMqtt = () => {
       client.subscribe(topics, { qos: 1 }, (err) => {
         if (err) {
           console.error('Erro ao subscrever:', err);
-          // Não mostrar toast de erro automaticamente
-          // O status será exibido no componente MqttStatus
         } else {
           console.log('✅ Inscrito nos tópicos:', topics);
         }
@@ -67,7 +120,6 @@ export const useMqtt = () => {
         console.log('📩 Mensagem recebida:', { topic, data });
         setLastMessage(message);
 
-        // Salvar dados automaticamente no banco via Edge Function
         if (topic === MQTT_CONFIG.topics.sensors) {
           await saveSensorData(data);
         } else if (topic === MQTT_CONFIG.topics.relayStatus) {
@@ -79,19 +131,21 @@ export const useMqtt = () => {
     });
 
     client.on('error', (error) => {
-      console.error('❌ Erro MQTT:', error);
-      // Não mostrar toast de erro automaticamente
-      // O status será exibido no componente MqttStatus
+      clearTimeout(connectionTimeout);
+      console.error('❌ Erro MQTT:', error.message);
       setIsConnected(false);
     });
 
-    client.on('disconnect', () => {
-      console.log('⚠️ MQTT desconectado');
+    client.on('close', () => {
+      clearTimeout(connectionTimeout);
+      console.log('🔌 MQTT: Conexão fechada');
       setIsConnected(false);
-    });
-
-    client.on('reconnect', () => {
-      console.log('🔄 Tentando reconectar...');
+      isConnectingRef.current = false;
+      
+      // Schedule reconnection with backoff
+      if (connectionState.attempts < MAX_RETRY_ATTEMPTS) {
+        scheduleReconnect();
+      }
     });
 
     client.on('offline', () => {
@@ -100,51 +154,92 @@ export const useMqtt = () => {
     });
 
     clientRef.current = client;
-  }, [toast]);
+
+    function handleConnectionFailure() {
+      isConnectingRef.current = false;
+      setIsConnected(false);
+      
+      setConnectionState(prev => {
+        const newAttempts = prev.attempts + 1;
+        const nextDelay = getBackoffDelay(newAttempts);
+        
+        console.log(`⚠️ MQTT: Falha na conexão. Tentativa ${newAttempts}/${MAX_RETRY_ATTEMPTS}. Próxima em ${nextDelay/1000}s`);
+        
+        return {
+          attempts: newAttempts,
+          lastAttempt: new Date(),
+          nextRetryIn: nextDelay,
+        };
+      });
+    }
+
+    function scheduleReconnect() {
+      const delay = getBackoffDelay(connectionState.attempts);
+      console.log(`🔄 MQTT: Reagendando reconexão em ${delay/1000}s`);
+      
+      retryTimeoutRef.current = setTimeout(() => {
+        if (!clientRef.current?.connected) {
+          connect();
+        }
+      }, delay);
+    }
+  }, [connectionState.attempts, clearRetryTimeout, getBackoffDelay]);
 
   const disconnect = useCallback(() => {
+    clearRetryTimeout();
+    isConnectingRef.current = false;
+    
     if (clientRef.current) {
-      clientRef.current.end();
+      clientRef.current.end(true);
       clientRef.current = null;
       setIsConnected(false);
     }
-  }, []);
+  }, [clearRetryTimeout]);
+
+  // Manual reconnect - resets retry counter
+  const reconnect = useCallback(() => {
+    console.log('🔄 MQTT: Reconexão manual solicitada');
+    disconnect();
+    setConnectionState({
+      attempts: 0,
+      lastAttempt: null,
+      nextRetryIn: INITIAL_RETRY_DELAY,
+    });
+    // Small delay before reconnecting
+    setTimeout(() => connect(), 500);
+  }, [disconnect, connect]);
 
   const publish = useCallback(
     (topic: string, message: any, options = { qos: 1 as 0 | 1 | 2 }) => {
       return new Promise<void>((resolve, reject) => {
         if (!clientRef.current?.connected) {
-          console.error('🔴 MQTT DEBUG: Tentativa de publicar sem conexão');
+          console.error('🔴 MQTT: Não conectado - tentando reconectar');
+          reconnect();
           reject(new Error('MQTT não conectado'));
           return;
         }
 
         const payload = typeof message === 'string' ? message : JSON.stringify(message);
         
-        // DEBUG: Log detalhado do que está sendo enviado
-        console.log('📤 MQTT DEBUG - PUBLICANDO:');
-        console.log('   📍 Tópico:', topic);
-        console.log('   📦 Payload (raw):', message);
-        console.log('   📦 Payload (JSON):', payload);
-        console.log('   ⚙️ Options:', options);
+        console.log('📤 MQTT PUBLISH:', topic, payload);
         
         clientRef.current.publish(topic, payload, options, (error) => {
           if (error) {
-            console.error('❌ MQTT DEBUG - ERRO ao publicar:', error);
+            console.error('❌ MQTT: Erro ao publicar:', error);
             reject(error);
           } else {
-            console.log('✅ MQTT DEBUG - Publicado com sucesso!');
+            console.log('✅ MQTT: Publicado com sucesso');
             resolve();
           }
         });
       });
     },
-    []
+    [reconnect]
   );
 
   const saveSensorData = useCallback(async (data: any) => {
     try {
-      console.log('💾 Salvando dados de sensores no banco...');
+      console.log('💾 Salvando dados de sensores...');
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
@@ -162,18 +257,17 @@ export const useMqtt = () => {
       if (error) {
         console.error('❌ Erro ao salvar sensores:', error);
       } else {
-        console.log('✅ Dados de sensores salvos:', result);
+        console.log('✅ Sensores salvos:', result);
       }
     } catch (error) {
-      console.error('❌ Erro ao chamar edge function:', error);
+      console.error('❌ Erro edge function:', error);
     }
   }, []);
 
   const saveRelayStatus = useCallback(async (data: any) => {
     try {
-      console.log('💾 Salvando status dos relés no banco...', data);
+      console.log('💾 Salvando status dos relés...', data);
       
-      // Mapear relay1, relay2, etc. para relay1_led, relay2_pump, etc.
       const mappedData = {
         relay1_led: data.relay1 ?? false,
         relay2_pump: data.relay2 ?? false,
@@ -185,7 +279,7 @@ export const useMqtt = () => {
         relay8_generic: data.relay8 ?? false
       };
 
-      console.log('💾 Dados mapeados para salvar:', mappedData);
+      console.log('💾 Dados mapeados:', mappedData);
       
       const { data: result, error } = await supabase.functions.invoke('mqtt-collector', {
         body: {
@@ -195,28 +289,23 @@ export const useMqtt = () => {
       });
 
       if (error) {
-        console.error('❌ Erro ao salvar status dos relés:', error);
+        console.error('❌ Erro ao salvar relés:', error);
       } else {
-        console.log('✅ Status dos relés salvo:', result);
+        console.log('✅ Relés salvos:', result);
       }
     } catch (error) {
-      console.error('❌ Erro ao chamar edge function:', error);
+      console.error('❌ Erro edge function:', error);
     }
   }, []);
 
   const publishRelayCommand = useCallback(
     async (relayIndex: number, command: boolean) => {
-      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        relay: relayIndex + 1, // ESP32 usa 1-8, não 0-7
-        command: command // boolean direto
+        relay: relayIndex + 1,
+        command: command
       };
 
-      console.log('🎯 RELAY COMMAND DEBUG:');
-      console.log('   relayIndex (0-7):', relayIndex);
-      console.log('   relay (1-8):', relayIndex + 1);
-      console.log('   command:', command);
-      console.log('   Mensagem completa:', JSON.stringify(message));
+      console.log('🎯 RELAY CMD:', JSON.stringify(message));
 
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
@@ -238,27 +327,20 @@ export const useMqtt = () => {
 
   const publishRelayConfig = useCallback(
     async (relayIndex: number, config: any) => {
-      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        relay: relayIndex + 1, // ESP32 usa 1-8
+        relay: relayIndex + 1,
         config: config
       };
 
-      console.log('⚙️ RELAY CONFIG DEBUG:');
-      console.log('   relayIndex (0-7):', relayIndex);
-      console.log('   relay (1-8):', relayIndex + 1);
-      console.log('   config:', JSON.stringify(config, null, 2));
-      console.log('   Mensagem completa:', JSON.stringify(message));
+      console.log('⚙️ RELAY CONFIG:', JSON.stringify(message));
 
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        console.log('✅ Configuração enviada via MQTT para relé', relayIndex + 1);
         toast({
           title: 'Configuração enviada',
-          description: `Relé ${relayIndex + 1} configurado com sucesso`,
+          description: `Relé ${relayIndex + 1} configurado`,
         });
       } catch (error) {
-        console.error('❌ Erro ao enviar configuração:', error);
         toast({
           title: 'Erro ao enviar configuração',
           description: 'Falha na comunicação MQTT',
@@ -272,22 +354,18 @@ export const useMqtt = () => {
 
   const setRelayAuto = useCallback(
     async (relayIndex: number) => {
-      // Formato simplificado compatível com firmware v3.4+
       const message = {
-        relay: relayIndex + 1, // ESP32 usa 1-8
+        relay: relayIndex + 1,
         auto: true
       };
 
-      console.log('🔄 RELAY AUTO DEBUG:');
-      console.log('   relayIndex (0-7):', relayIndex);
-      console.log('   relay (1-8):', relayIndex + 1);
-      console.log('   Mensagem completa:', JSON.stringify(message));
+      console.log('🔄 RELAY AUTO:', JSON.stringify(message));
 
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         toast({
           title: 'Modo automático',
-          description: `Relé ${relayIndex + 1} retornado ao modo automático`,
+          description: `Relé ${relayIndex + 1} em modo automático`,
         });
       } catch (error) {
         toast({
@@ -304,16 +382,17 @@ export const useMqtt = () => {
   useEffect(() => {
     connect();
     return () => disconnect();
-  }, [connect, disconnect]);
+  }, []);
 
   return {
     isConnected,
     lastMessage,
+    connectionState,
     publish,
     publishRelayCommand,
     publishRelayConfig,
     setRelayAuto,
-    connect,
+    connect: reconnect, // Use reconnect for manual calls (resets counter)
     disconnect,
     client: clientRef.current,
   };

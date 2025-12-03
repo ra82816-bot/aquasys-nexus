@@ -1,19 +1,13 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { Wifi, WifiOff, RefreshCw, Loader2 } from "lucide-react";
 import { useMqttContext } from "@/contexts/MqttContext";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-type ConnectionStatus = "connected" | "disconnected";
-
 export const MqttFooter = () => {
-  const { isConnected, lastMessage, connect } = useMqttContext();
-  const [status, setStatus] = useState<ConnectionStatus>("disconnected");
+  const { isConnected, lastMessage, connectionState, connect } = useMqttContext();
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setStatus(isConnected ? "connected" : "disconnected");
-  }, [isConnected]);
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   useEffect(() => {
     if (lastMessage) {
@@ -22,23 +16,30 @@ export const MqttFooter = () => {
   }, [lastMessage]);
 
   const handleReconnect = () => {
+    setIsReconnecting(true);
     connect();
+    setTimeout(() => setIsReconnecting(false), 3000);
   };
 
   const getStatusColor = () => {
-    return status === "connected" ? "text-green-500" : "text-destructive";
+    if (isConnected) return "text-green-500";
+    if (connectionState.attempts > 0) return "text-yellow-500";
+    return "text-destructive";
   };
 
   const getStatusIcon = () => {
-    return status === "connected" ? (
-      <Wifi className="h-4 w-4" />
-    ) : (
-      <WifiOff className="h-4 w-4" />
-    );
+    if (isReconnecting || (connectionState.attempts > 0 && !isConnected)) {
+      return <Loader2 className="h-4 w-4 animate-spin" />;
+    }
+    return isConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />;
   };
 
   const getStatusText = () => {
-    return status === "connected" ? "Conectado" : "Desconectado";
+    if (isConnected) return "Conectado";
+    if (connectionState.attempts > 0) {
+      return `Reconectando (${connectionState.attempts}/10)`;
+    }
+    return "Desconectado";
   };
 
   return (
@@ -47,9 +48,14 @@ export const MqttFooter = () => {
         <div className={`flex items-center gap-2 text-sm ${getStatusColor()}`}>
           {getStatusIcon()}
           <span className="font-medium">{getStatusText()}</span>
-          {lastUpdate && (
+          {lastUpdate && isConnected && (
             <span className="text-xs text-muted-foreground ml-2">
               {lastUpdate.toLocaleTimeString("pt-BR")}
+            </span>
+          )}
+          {!isConnected && connectionState.attempts > 0 && (
+            <span className="text-xs text-muted-foreground ml-2">
+              Próxima em {Math.round(connectionState.nextRetryIn / 1000)}s
             </span>
           )}
         </div>
@@ -61,10 +67,10 @@ export const MqttFooter = () => {
                 variant="ghost"
                 size="sm"
                 onClick={handleReconnect}
-                disabled={isConnected}
+                disabled={isConnected || isReconnecting}
                 className="gap-2 h-8"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RefreshCw className={`h-3.5 w-3.5 ${isReconnecting ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Reconectar</span>
               </Button>
             </TooltipTrigger>

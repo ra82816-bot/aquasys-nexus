@@ -2,9 +2,16 @@ import React, { createContext, useContext, ReactNode } from 'react';
 import { useMqtt } from '@/hooks/useMqtt';
 import type { MqttMessage } from '@/hooks/useMqtt';
 
+interface ConnectionState {
+  attempts: number;
+  lastAttempt: Date | null;
+  nextRetryIn: number;
+}
+
 interface MqttContextType {
   isConnected: boolean;
   lastMessage: MqttMessage | null;
+  connectionState: ConnectionState;
   publish: (topic: string, message: any, options?: any) => Promise<void>;
   publishRelayCommand: (relayIndex: number, command: boolean) => Promise<void>;
   publishRelayConfig: (relayIndex: number, config: any) => Promise<void>;
@@ -13,10 +20,8 @@ interface MqttContextType {
   disconnect: () => void;
 }
 
-// Create context with undefined default to enforce provider usage
 const MqttContext = createContext<MqttContextType | undefined>(undefined);
 
-// Provider component that initializes MQTT connection
 export const MqttProvider = ({ children }: { children: ReactNode }) => {
   const mqtt = useMqtt();
 
@@ -27,10 +32,10 @@ export const MqttProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-// Fallback context for when provider is not available (e.g., during HMR)
 const fallbackContext: MqttContextType = {
   isConnected: false,
   lastMessage: null,
+  connectionState: { attempts: 0, lastAttempt: null, nextRetryIn: 1000 },
   publish: async () => { console.warn('MQTT: Provider não disponível'); },
   publishRelayCommand: async () => { console.warn('MQTT: Provider não disponível'); },
   publishRelayConfig: async () => { console.warn('MQTT: Provider não disponível'); },
@@ -39,7 +44,6 @@ const fallbackContext: MqttContextType = {
   disconnect: () => { console.warn('MQTT: Provider não disponível'); },
 };
 
-// Custom hook to use MQTT context with graceful fallback
 export const useMqttContext = () => {
   const context = useContext(MqttContext);
   if (!context) {
