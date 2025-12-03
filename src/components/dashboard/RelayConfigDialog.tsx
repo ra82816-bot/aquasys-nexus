@@ -39,7 +39,7 @@ export const RelayConfigDialog = ({
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
-  const { publishRelayConfig, isConnected } = useMqttContext();
+  const { publishRelayConfig, setRelayAuto, isConnected } = useMqttContext();
 
   // Inicializa formData quando config muda
   useEffect(() => {
@@ -175,6 +175,12 @@ export const RelayConfigDialog = ({
         });
         await publishRelayConfig(relayIndex, mqttConfig);
         console.log('✅ CONFIG DEBUG - Configuração enviada via MQTT');
+        
+        // IMPORTANTE: Desativar manual_override no ESP32 para que o modo automático funcione
+        if (mode !== 'manual') {
+          await setRelayAuto(relayIndex);
+          console.log('✅ CONFIG DEBUG - Modo automático ativado no ESP32');
+        }
       } else {
         toast({
           title: "Aviso",
