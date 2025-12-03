@@ -83,13 +83,26 @@ export const RelayConfigDialog = ({
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // Limpa valores undefined/NaN do formData
+      const cleanFormData: Record<string, any> = {};
+      Object.entries(formData).forEach(([key, value]) => {
+        if (value !== undefined && value !== '' && !Number.isNaN(value)) {
+          cleanFormData[key] = value;
+        }
+      });
+
       const updateData = {
         mode,
-        ...formData,
+        ...cleanFormData,
         updated_at: new Date().toISOString()
       };
 
-      console.log('Salvando configuração do relé:', { relayIndex, updateData });
+      console.log('⚙️ CONFIG DEBUG - Salvando configuração do relé:', { 
+        relayIndex, 
+        mode,
+        formData: cleanFormData,
+        updateData 
+      });
 
       // Salvar no banco
       const { data, error } = await supabase
@@ -101,13 +114,17 @@ export const RelayConfigDialog = ({
 
       if (error) throw error;
 
-      console.log('Configuração salva no banco:', data);
+      console.log('✅ CONFIG DEBUG - Configuração salva no banco:', data);
 
       // Enviar via MQTT para o ESP32
       if (isConnected) {
-        const mqttConfig = prepareMqttConfig(mode, formData);
+        const mqttConfig = prepareMqttConfig(mode, cleanFormData);
+        console.log('📤 CONFIG DEBUG - Enviando via MQTT:', {
+          relayIndex,
+          mqttConfig
+        });
         await publishRelayConfig(relayIndex, mqttConfig);
-        console.log('Configuração enviada via MQTT:', mqttConfig);
+        console.log('✅ CONFIG DEBUG - Configuração enviada via MQTT');
       } else {
         toast({
           title: "Aviso",
@@ -124,7 +141,7 @@ export const RelayConfigDialog = ({
       await onSave();
       onOpenChange(false);
     } catch (error: any) {
-      console.error('Erro ao salvar configuração:', error);
+      console.error('❌ CONFIG DEBUG - Erro ao salvar configuração:', error);
       toast({
         title: "Erro",
         description: error.message,
