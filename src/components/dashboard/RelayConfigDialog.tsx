@@ -96,11 +96,20 @@ export const RelayConfigDialog = ({
       'manual': 0
     };
 
-    // Usa ?? para preservar valores 0 válidos
+    // LED schedule: firmware espera led_off_hour > led_on_hour
+    // Se led_off_hour for 0 (meia-noite), converter para 24
+    let ledOffHour = data.led_off_hour ?? 0;
+    if (ledOffHour === 0 && (data.led_on_hour ?? 6) > 0) {
+      ledOffHour = 24; // Meia-noite como 24 para firmware
+    }
+
+    // EC: App usa mS/cm, firmware usa µS/cm (multiplicar por 1000)
+    const ecThresholdMicroS = (data.ec_threshold ?? 1.2) * 1000;
+
     return {
       mode: modeMap[mode] ?? 0,
       led_on_hour: data.led_on_hour ?? 6,
-      led_off_hour: data.led_off_hour ?? 0,
+      led_off_hour: ledOffHour,
       cycle_on_min: data.cycle_on_min ?? 15,
       cycle_off_min: data.cycle_off_min ?? 15,
       ph_pulse_sec: data.ph_pulse_sec ?? 5,
@@ -110,7 +119,7 @@ export const RelayConfigDialog = ({
       temp_threshold_off: data.temp_threshold_off ?? 26.0,
       humidity_threshold_on: data.humidity_threshold_on ?? 75.0,
       humidity_threshold_off: data.humidity_threshold_off ?? 65.0,
-      ec_threshold: data.ec_threshold ?? 1.2,
+      ec_threshold: ecThresholdMicroS,
       ec_pulse_sec: data.ec_pulse_sec ?? 5
     };
   };
@@ -347,13 +356,17 @@ export const RelayConfigDialog = ({
         return (
           <>
             <div className="space-y-2">
-              <Label>EC Mínimo (ativa quando EC menor)</Label>
+              <Label>EC Mínimo em mS/cm (ativa quando EC menor)</Label>
               <Input
                 type="number"
                 step="0.01"
+                min="0"
+                max="5"
+                placeholder="ex: 1.2"
                 value={getInputValue('ec_threshold')}
                 onChange={(e) => handleNumberChange('ec_threshold', e.target.value, true)}
               />
+              <p className="text-xs text-muted-foreground">Valores típicos: 0.8-2.0 mS/cm</p>
             </div>
             <div className="space-y-2">
               <Label>Duração do Pulso (segundos)</Label>
