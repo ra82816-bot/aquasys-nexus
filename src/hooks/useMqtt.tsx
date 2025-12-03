@@ -114,18 +114,26 @@ export const useMqtt = () => {
     (topic: string, message: any, options = { qos: 1 as 0 | 1 | 2 }) => {
       return new Promise<void>((resolve, reject) => {
         if (!clientRef.current?.connected) {
+          console.error('🔴 MQTT DEBUG: Tentativa de publicar sem conexão');
           reject(new Error('MQTT não conectado'));
           return;
         }
 
         const payload = typeof message === 'string' ? message : JSON.stringify(message);
         
+        // DEBUG: Log detalhado do que está sendo enviado
+        console.log('📤 MQTT DEBUG - PUBLICANDO:');
+        console.log('   📍 Tópico:', topic);
+        console.log('   📦 Payload (raw):', message);
+        console.log('   📦 Payload (JSON):', payload);
+        console.log('   ⚙️ Options:', options);
+        
         clientRef.current.publish(topic, payload, options, (error) => {
           if (error) {
-            console.error('Erro ao publicar:', error);
+            console.error('❌ MQTT DEBUG - ERRO ao publicar:', error);
             reject(error);
           } else {
-            console.log('✅ Mensagem publicada:', { topic, message });
+            console.log('✅ MQTT DEBUG - Publicado com sucesso!');
             resolve();
           }
         });
@@ -204,6 +212,12 @@ export const useMqtt = () => {
         command: command // boolean direto
       };
 
+      console.log('🎯 RELAY COMMAND DEBUG:');
+      console.log('   relayIndex (0-7):', relayIndex);
+      console.log('   relay (1-8):', relayIndex + 1);
+      console.log('   command:', command);
+      console.log('   Mensagem completa:', JSON.stringify(message));
+
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
         toast({
@@ -230,9 +244,15 @@ export const useMqtt = () => {
         config: config
       };
 
+      console.log('⚙️ RELAY CONFIG DEBUG:');
+      console.log('   relayIndex (0-7):', relayIndex);
+      console.log('   relay (1-8):', relayIndex + 1);
+      console.log('   config:', JSON.stringify(config, null, 2));
+      console.log('   Mensagem completa:', JSON.stringify(message));
+
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
-        console.log('✅ Configuração enviada via MQTT para relé', relayIndex);
+        console.log('✅ Configuração enviada via MQTT para relé', relayIndex + 1);
         toast({
           title: 'Configuração enviada',
           description: `Relé ${relayIndex + 1} configurado com sucesso`,
@@ -257,6 +277,11 @@ export const useMqtt = () => {
         relay: relayIndex + 1, // ESP32 usa 1-8
         auto: true
       };
+
+      console.log('🔄 RELAY AUTO DEBUG:');
+      console.log('   relayIndex (0-7):', relayIndex);
+      console.log('   relay (1-8):', relayIndex + 1);
+      console.log('   Mensagem completa:', JSON.stringify(message));
 
       try {
         await publish(MQTT_CONFIG.topics.relayCommand, message);
