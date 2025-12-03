@@ -183,6 +183,7 @@ export const RelayControls = () => {
               name={config.name || `Relé ${config.relay_index + 1}`}
               mode={config.mode}
               isOn={getRelayStatus(config.relay_index)}
+              config={config}
               onNameUpdate={fetchRelayConfigs}
             />
             <Button

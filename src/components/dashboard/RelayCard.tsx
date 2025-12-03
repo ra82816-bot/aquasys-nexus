@@ -8,15 +8,35 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useMqttContext } from "@/contexts/MqttContext";
 
+interface RelayConfig {
+  relay_index: number;
+  mode: string;
+  name?: string | null;
+  led_on_hour?: number | null;
+  led_off_hour?: number | null;
+  cycle_on_min?: number | null;
+  cycle_off_min?: number | null;
+  ph_pulse_sec?: number | null;
+  ph_threshold_low?: number | null;
+  ph_threshold_high?: number | null;
+  temp_threshold_on?: number | null;
+  temp_threshold_off?: number | null;
+  humidity_threshold_on?: number | null;
+  humidity_threshold_off?: number | null;
+  ec_threshold?: number | null;
+  ec_pulse_sec?: number | null;
+}
+
 interface RelayCardProps {
   relayIndex: number;
   name: string;
   mode: string;
   isOn: boolean;
+  config?: RelayConfig;
   onNameUpdate?: () => void;
 }
 
-export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayCardProps) => {
+export const RelayCard = ({ relayIndex, name, mode, isOn, config, onNameUpdate }: RelayCardProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(name);
@@ -134,6 +154,78 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
     return labels[mode] || mode;
   };
 
+  // Renderiza os detalhes do modo configurado
+  const renderModeDetails = () => {
+    if (!config) return null;
+
+    switch (mode) {
+      case 'led':
+        if (config.led_on_hour != null && config.led_off_hour != null) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              {String(config.led_on_hour).padStart(2, '0')}:00 - {String(config.led_off_hour).padStart(2, '0')}:00
+            </span>
+          );
+        }
+        break;
+      case 'cycle':
+        if (config.cycle_on_min && config.cycle_off_min) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              {config.cycle_on_min}min ON / {config.cycle_off_min}min OFF
+            </span>
+          );
+        }
+        break;
+      case 'ph_up':
+        if (config.ph_threshold_low != null) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              pH &lt; {config.ph_threshold_low} → Pulso {config.ph_pulse_sec}s
+            </span>
+          );
+        }
+        break;
+      case 'ph_down':
+        if (config.ph_threshold_high != null) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              pH &gt; {config.ph_threshold_high} → Pulso {config.ph_pulse_sec}s
+            </span>
+          );
+        }
+        break;
+      case 'temperature':
+        if (config.temp_threshold_on != null && config.temp_threshold_off != null) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              {config.temp_threshold_off}°C - {config.temp_threshold_on}°C
+            </span>
+          );
+        }
+        break;
+      case 'humidity':
+        if (config.humidity_threshold_on != null && config.humidity_threshold_off != null) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              {config.humidity_threshold_off}% - {config.humidity_threshold_on}%
+            </span>
+          );
+        }
+        break;
+      case 'ec':
+        if (config.ec_threshold != null) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              EC &lt; {config.ec_threshold} → Pulso {config.ec_pulse_sec}s
+            </span>
+          );
+        }
+        break;
+    }
+    return null;
+  };
+
   // Cor do badge baseada no estado e conexão
   const getBadgeColor = () => {
     if (!isConnected) return 'bg-yellow-500/20 text-yellow-600 border-yellow-500/30';
@@ -186,14 +278,17 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, onNameUpdate }: RelayC
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          <div className="text-sm text-muted-foreground flex items-center justify-between">
-            <span className="font-medium">Modo: {getModeLabel(mode)}</span>
-            {mode !== 'manual' && mode !== 'unused' && (
-              <div 
-                className={`w-2 h-2 rounded-full ${isOn ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}
-                title={isOn ? 'Ativo' : 'Inativo'}
-              />
-            )}
+          <div className="text-sm text-muted-foreground">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Modo: {getModeLabel(mode)}</span>
+              {mode !== 'manual' && mode !== 'unused' && (
+                <div 
+                  className={`w-2 h-2 rounded-full ${isOn ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}
+                  title={isOn ? 'Ativo' : 'Inativo'}
+                />
+              )}
+            </div>
+            {renderModeDetails()}
           </div>
 
           
