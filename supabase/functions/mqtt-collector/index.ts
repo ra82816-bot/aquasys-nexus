@@ -19,31 +19,42 @@ serve(async (req) => {
     const { action, data } = await req.json();
 
     if (action === 'process_sensors') {
-      // Validar campos obrigatórios dos sensores
-      if (!data.ph || !data.ec || !data.airTemp || !data.humidity || !data.waterTemp) {
-        console.error('Dados de sensores inválidos:', data);
-        
-        await supabase.from('event_logs').insert({
-          type: 'validation_error',
-          message: `Dados de sensores inválidos: ${JSON.stringify(data)}`
-        });
-        
+      // Verificar se há pelo menos um valor válido de sensor
+      const hasValidData = data.ph != null || data.ec != null || 
+                           data.airTemp != null || data.humidity != null || 
+                           data.waterTemp != null;
+      
+      if (!hasValidData) {
+        console.error('Nenhum dado de sensor válido recebido:', data);
         return new Response(
-          JSON.stringify({ error: 'Dados de sensores inválidos' }),
+          JSON.stringify({ error: 'Nenhum dado de sensor válido' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
+      // Buscar última leitura para preencher valores ausentes
+      const { data: lastReading } = await supabase
+        .from('readings')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .single();
+
+      // Usar valores da última leitura como fallback para campos nulos
+      const sensorReading = {
+        ph: data.ph ?? lastReading?.ph ?? 7.0,
+        ec: data.ec ?? lastReading?.ec ?? 0,
+        air_temp: data.airTemp ?? lastReading?.air_temp ?? 25,
+        humidity: data.humidity ?? lastReading?.humidity ?? 60,
+        water_temp: data.waterTemp ?? lastReading?.water_temp ?? 23
+      };
+
+      console.log('Dados de sensores processados:', sensorReading);
+
       // Inserir leitura de sensores
       const { error: insertError } = await supabase
         .from('readings')
-        .insert({
-          ph: data.ph,
-          ec: data.ec,
-          air_temp: data.airTemp,
-          humidity: data.humidity,
-          water_temp: data.waterTemp
-        });
+        .insert(sensorReading);
 
       if (insertError) {
         console.error('Erro ao inserir leitura:', insertError);
