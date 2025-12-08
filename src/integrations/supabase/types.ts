@@ -1569,6 +1569,7 @@ export type Database = {
         | "temperature"
         | "humidity"
         | "ec"
+        | "manual"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1746,6 +1747,7 @@ export const Constants = {
         "temperature",
         "humidity",
         "ec",
+        "manual",
       ],
     },
   },

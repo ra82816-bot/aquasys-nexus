@@ -292,38 +292,48 @@ export const RelayCard = ({ relayIndex, name, mode, isOn, config, onNameUpdate }
           </div>
 
           
-          <div className="flex gap-2">
-            <Button
-              onClick={handleToggle}
-              disabled={isLoading || !isConnected}
-              className="flex-1 gap-2"
-              variant={isOn ? "destructive" : "default"}
-              title={isOn ? "Desligar relé" : "Ligar relé"}
-            >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Processando...
-                </span>
-              ) : (
-                <>
-                  {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                  {isOn ? 'Desligar' : 'Ligar'}
-                </>
+          {/* Botões desabilitados para modo "unused" */}
+          {mode === 'unused' ? (
+            <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded text-center">
+              Relé configurado como "Não usado". Configure um modo para habilitar controles.
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                onClick={handleToggle}
+                disabled={isLoading || !isConnected}
+                className="flex-1 gap-2"
+                variant={isOn ? "destructive" : "default"}
+                title={isOn ? "Desligar relé" : "Ligar relé"}
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    Processando...
+                  </span>
+                ) : (
+                  <>
+                    {isOn ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                    {isOn ? 'Desligar' : 'Ligar'}
+                  </>
+                )}
+              </Button>
+              
+              {/* Botão Auto só aparece para modos automáticos */}
+              {mode !== 'manual' && (
+                <Button
+                  onClick={handleSetAuto}
+                  disabled={isLoading || !isConnected}
+                  variant="outline"
+                  size="sm"
+                  className="px-3"
+                  title="Retornar ao modo automático"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                </Button>
               )}
-            </Button>
-            
-            <Button
-              onClick={handleSetAuto}
-              disabled={isLoading || !isConnected}
-              variant="outline"
-              size="sm"
-              className="px-3"
-              title="Retornar ao modo automático"
-            >
-              <RefreshCcw className="h-4 w-4" />
-            </Button>
-          </div>
+            </div>
+          )}
 
           {!isConnected && (
             <div className="text-xs text-yellow-600 bg-yellow-500/10 p-2 rounded flex items-center justify-center gap-2">

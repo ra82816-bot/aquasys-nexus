@@ -83,35 +83,44 @@ export const RelayConfigDialog = ({
   };
 
   const prepareMqttConfig = (mode: string, data: Record<string, any>) => {
+    // Mapeamento de modos do app para firmware
+    // IMPORTANTE: Os valores devem corresponder ao enum RelayMode no firmware ESP32
+    // MODE_MANUAL não existe no firmware, então usa MODE_UNUSED (0) - a diferença é que
+    // não chamamos setRelayAuto() depois, mantendo manual_override = true
     const modeMap: Record<string, number> = {
-      'unused': 0,
-      'led': 1,
-      'cycle': 2,
-      'ph_up': 3,
-      'temperature': 4,
-      'humidity': 5,
-      'ec': 6,
-      'co2': 7,
-      'ph_down': 8,
-      'manual': 0
+      'unused': 0,      // MODE_UNUSED - não responde a comandos
+      'manual': 0,      // Tratado como unused no firmware, mas sem resetar manual_override
+      'led': 1,         // MODE_LED - schedule baseado em horário
+      'cycle': 2,       // MODE_CYCLE - alternância ligado/desligado
+      'ph_up': 3,       // MODE_PH_UP - pulso quando pH baixo
+      'temperature': 4, // MODE_TEMPERATURE - controle por histerese
+      'humidity': 5,    // MODE_HUMIDITY - controle por histerese
+      'ec': 6,          // MODE_EC - pulso quando EC baixo
+      'co2': 7,         // MODE_CO2 - não implementado no firmware
+      'ph_down': 8      // MODE_PH_DOWN - pulso quando pH alto
     };
 
-    // LED schedule: firmware espera led_off_hour > led_on_hour
+    // LED schedule: firmware espera led_off_hour > led_on_hour para schedule overnight
     // Se led_off_hour for 0 (meia-noite), converter para 24
+    let ledOnHour = data.led_on_hour ?? 6;
     let ledOffHour = data.led_off_hour ?? 0;
-    if (ledOffHour === 0 && (data.led_on_hour ?? 6) > 0) {
+    if (ledOffHour === 0 && ledOnHour > 0) {
       ledOffHour = 24; // Meia-noite como 24 para firmware
     }
 
     // EC: App usa mS/cm, firmware usa µS/cm (multiplicar por 1000)
     const ecThresholdMicroS = (data.ec_threshold ?? 1.2) * 1000;
 
-    return {
+    // Cycle: garantir valores mínimos
+    const cycleOnMin = Math.max(1, data.cycle_on_min ?? 15);
+    const cycleOffMin = Math.max(1, data.cycle_off_min ?? 15);
+
+    const mqttConfig = {
       mode: modeMap[mode] ?? 0,
-      led_on_hour: data.led_on_hour ?? 6,
+      led_on_hour: ledOnHour,
       led_off_hour: ledOffHour,
-      cycle_on_min: data.cycle_on_min ?? 15,
-      cycle_off_min: data.cycle_off_min ?? 15,
+      cycle_on_min: cycleOnMin,
+      cycle_off_min: cycleOffMin,
       ph_pulse_sec: data.ph_pulse_sec ?? 5,
       ph_threshold_low: data.ph_threshold_low ?? 5.8,
       ph_threshold_high: data.ph_threshold_high ?? 6.5,
@@ -122,6 +131,19 @@ export const RelayConfigDialog = ({
       ec_threshold: ecThresholdMicroS,
       ec_pulse_sec: data.ec_pulse_sec ?? 5
     };
+
+    console.log('🔧 prepareMqttConfig - Input:', { 
+      inputMode: mode, 
+      formData: data 
+    });
+    console.log('🔧 prepareMqttConfig - Output:', { 
+      mappedMode: mqttConfig.mode, 
+      ledSchedule: `${mqttConfig.led_on_hour}h → ${mqttConfig.led_off_hour}h`,
+      cycleSchedule: `${mqttConfig.cycle_on_min}min ON / ${mqttConfig.cycle_off_min}min OFF`,
+      ecThreshold: `${ecThresholdMicroS} µS/cm`
+    });
+
+    return mqttConfig;
   };
 
   const handleSave = async () => {
