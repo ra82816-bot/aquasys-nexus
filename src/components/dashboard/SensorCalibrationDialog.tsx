@@ -9,9 +9,9 @@ import { Settings2, Droplets, Zap, AlertTriangle, CheckCircle2, Wifi, WifiOff } 
 import { useMqttContext } from '@/contexts/MqttContext';
 import { useToast } from '@/hooks/use-toast';
 
-// Calibração dois pontos (pH 4.0 e pH 7.0) - padrão industrial
+// Calibração dois pontos (pH 4.0 e pH 6.86) - padrão industrial
 const PH_CALIBRATION_POINTS = [
-  { value: '7.0', label: 'pH 7.0', description: 'Solução neutra - CALIBRAR PRIMEIRO' },
+  { value: '6.86', label: 'pH 6.86', description: 'Solução neutra - CALIBRAR PRIMEIRO' },
   { value: '4.0', label: 'pH 4.0', description: 'Solução ácida - calibrar segundo' },
 ];
 
@@ -162,7 +162,7 @@ export const SensorCalibrationDialog = () => {
                 <CardTitle className="text-base">Calibração de pH (Dois Pontos)</CardTitle>
                 <CardDescription>
                   Mergulhe o sensor na solução padrão e clique no botão correspondente.
-                  Calibre primeiro pH 7.0 (neutro), depois pH 4.0 (ácido).
+                  Calibre primeiro pH 6.86 (neutro), depois pH 4.0 (ácido).
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -177,7 +177,7 @@ export const SensorCalibrationDialog = () => {
                     </div>
                     <Button
                       size="sm"
-                      variant={point.value === '7.0' ? 'default' : 'secondary'}
+                      variant={point.value === '6.86' ? 'default' : 'secondary'}
                       disabled={!isConnected || calibrating !== null}
                       onClick={() => sendCalibrationCommand('ph', point.value)}
                     >
