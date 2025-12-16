@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { LogOut, Users, Sprout, Menu, Camera, Activity, BarChart3, Brain, Settings } from "lucide-react";
+import { LogOut, Users, Sprout, Menu, Camera, Activity, BarChart3, Brain, Settings, Cpu } from "lucide-react";
 import hydroSmartLogo from "@/assets/hydro-smart-logo.webp";
 import { useLocation } from "react-router-dom";
 import {
@@ -26,6 +26,7 @@ export const AppHeader = ({ onLogout, onNavigate, currentTab, onTabChange }: App
     { id: "ai", label: "IA", icon: Brain, isDashboardTab: true },
     { id: "relays", label: "Relés", icon: Settings, isDashboardTab: true },
     { id: "plants", label: "Plantas", icon: Sprout, route: "/plants" },
+    { id: "devices", label: "Dispositivos", icon: Cpu, route: "/devices" },
     { id: "camera", label: "Câmera", icon: Camera, route: "/camera" },
     { id: "community", label: "Comunidade", icon: Users, route: "/community" },
   ];

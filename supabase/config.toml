@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.knowledge-search]
 verify_jwt = false
+
+[functions.register-device]
+verify_jwt = true
