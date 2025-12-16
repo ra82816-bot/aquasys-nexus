@@ -2,9 +2,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cpu, Radio, Trash2, Clock, Wifi } from "lucide-react";
-import { format } from "date-fns";
+import { Cpu, Radio, Trash2, Clock, Wifi, WifiOff, CircleDot } from "lucide-react";
+import { format, differenceInMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
+const getDeviceStatus = (lastSeenAt: string | null): { isOnline: boolean; label: string } => {
+  if (!lastSeenAt) {
+    return { isOnline: false, label: "Nunca conectou" };
+  }
+  
+  const minutesAgo = differenceInMinutes(new Date(), new Date(lastSeenAt));
+  
+  if (minutesAgo <= 2) {
+    return { isOnline: true, label: "Online" };
+  } else if (minutesAgo <= 10) {
+    return { isOnline: false, label: `Offline (${minutesAgo} min atrás)` };
+  } else {
+    return { isOnline: false, label: "Offline" };
+  }
+};
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,9 +104,23 @@ export const DevicesList = ({ devices, loading, onRemove }: DevicesListProps) =>
                   Módulo {device.device_type === 'sensor' ? 'Sensor' : 'Atuador'}
                 </CardTitle>
               </div>
-              <Badge variant={device.device_type === 'sensor' ? 'default' : 'secondary'}>
-                {device.device_type}
-              </Badge>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const status = getDeviceStatus(device.last_seen_at);
+                  return (
+                    <Badge 
+                      variant="outline" 
+                      className={status.isOnline 
+                        ? "border-green-500 text-green-600 bg-green-500/10" 
+                        : "border-red-500 text-red-600 bg-red-500/10"
+                      }
+                    >
+                      <CircleDot className={`h-3 w-3 mr-1 ${status.isOnline ? 'text-green-500' : 'text-red-500'}`} />
+                      {status.label}
+                    </Badge>
+                  );
+                })()}
+              </div>
             </div>
           </CardHeader>
           
@@ -117,7 +147,11 @@ export const DevicesList = ({ devices, loading, onRemove }: DevicesListProps) =>
               
               {device.last_seen_at && (
                 <div className="flex items-center gap-2 text-muted-foreground">
-                  <Wifi className="h-3.5 w-3.5" />
+                  {getDeviceStatus(device.last_seen_at).isOnline ? (
+                    <Wifi className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <WifiOff className="h-3.5 w-3.5 text-red-500" />
+                  )}
                   <span>Última conexão: {format(new Date(device.last_seen_at), "dd/MM HH:mm", { locale: ptBR })}</span>
                 </div>
               )}
