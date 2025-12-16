@@ -9,10 +9,10 @@ import { Settings2, Droplets, Zap, AlertTriangle, CheckCircle2 } from 'lucide-re
 import { useMqttContext } from '@/contexts/MqttContext';
 import { useToast } from '@/hooks/use-toast';
 
+// Calibração dois pontos (pH 4.0 e pH 7.0) - padrão industrial
 const PH_CALIBRATION_POINTS = [
-  { value: '4.01', label: 'pH 4.01', description: 'Solução ácida' },
-  { value: '7.00', label: 'pH 7.00', description: 'Solução neutra (calibrar primeiro)' },
-  { value: '10.01', label: 'pH 10.01', description: 'Solução básica' },
+  { value: '7.00', label: 'pH 7.0', description: 'Solução neutra - CALIBRAR PRIMEIRO' },
+  { value: '4.0', label: 'pH 4.0', description: 'Solução ácida - calibrar segundo' },
 ];
 
 export const SensorCalibrationDialog = () => {
@@ -106,10 +106,10 @@ export const SensorCalibrationDialog = () => {
           <TabsContent value="ph" className="space-y-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Calibração de pH</CardTitle>
+                <CardTitle className="text-base">Calibração de pH (Dois Pontos)</CardTitle>
                 <CardDescription>
                   Mergulhe o sensor na solução padrão e clique no botão correspondente.
-                  Calibre primeiro o ponto pH 7.00 (neutro).
+                  Calibre primeiro pH 7.0 (neutro), depois pH 4.0 (ácido).
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
