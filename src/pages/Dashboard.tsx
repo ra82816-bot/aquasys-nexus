@@ -9,6 +9,7 @@ import { SensorCharts } from "@/components/dashboard/SensorCharts";
 import { RelayControls } from "@/components/dashboard/RelayControls";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { PhControlPanel } from "@/components/dashboard/PhControlPanel";
+import { SensorCalibrationDialog } from "@/components/dashboard/SensorCalibrationDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppHeader } from "@/components/dashboard/AppHeader";
 import { MqttFooter } from "@/components/dashboard/MqttFooter";
@@ -132,10 +133,13 @@ const Dashboard = () => {
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
         <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
           <TabsContent value="sensors" className="space-y-3 sm:space-y-4 mt-0">
-            <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
-              <Activity className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-              <span className="text-base sm:text-2xl">Monitoramento em Tempo Real</span>
-            </h2>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h2 className="text-lg sm:text-2xl font-semibold text-foreground flex items-center gap-2">
+                <Activity className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                <span className="text-base sm:text-2xl">Monitoramento em Tempo Real</span>
+              </h2>
+              <SensorCalibrationDialog />
+            </div>
             <SensorCard latestReading={latestReading} />
           </TabsContent>
 
