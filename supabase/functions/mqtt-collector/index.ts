@@ -32,15 +32,17 @@ serve(async (req) => {
         );
       }
 
-      // Se device_uuid presente, atualizar last_seen_at do dispositivo
-      if (data.device_uuid) {
-        console.log('Device UUID recebido:', data.device_uuid);
+      // Se device_uuid presente (firmware envia como "uuid"), atualizar last_seen_at do dispositivo
+      const deviceUuid = data.device_uuid || data.uuid;
+      
+      if (deviceUuid) {
+        console.log('Device UUID recebido:', deviceUuid);
         
         // Verificar se dispositivo existe
         const { data: existingDevice } = await supabase
           .from('devices')
           .select('id')
-          .eq('device_uuid', data.device_uuid)
+          .eq('device_uuid', deviceUuid)
           .maybeSingle();
         
         if (existingDevice) {
@@ -56,15 +58,15 @@ serve(async (req) => {
           const { error: updateError } = await supabase
             .from('devices')
             .update(updateData)
-            .eq('device_uuid', data.device_uuid);
+            .eq('device_uuid', deviceUuid);
           
           if (updateError) {
             console.error('Erro ao atualizar last_seen_at:', updateError);
           } else {
-            console.log('Device last_seen_at atualizado:', data.device_uuid);
+            console.log('Device last_seen_at atualizado:', deviceUuid);
           }
         } else {
-          console.log('Dispositivo não registrado, ignorando atualização de status:', data.device_uuid);
+          console.log('Dispositivo não registrado, ignorando atualização de status:', deviceUuid);
         }
       }
 
