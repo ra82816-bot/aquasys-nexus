@@ -97,6 +97,7 @@ export const useMqtt = () => {
       const topics = [
         MQTT_CONFIG.topics.sensors,
         MQTT_CONFIG.topics.relayStatus,
+        'aquasys/sensors/calibrate/response', // Respostas de calibração do ESP32
       ];
       
       client.subscribe(topics, { qos: 1 }, (err) => {
@@ -124,6 +125,9 @@ export const useMqtt = () => {
           await saveSensorData(data);
         } else if (topic === MQTT_CONFIG.topics.relayStatus) {
           await saveRelayStatus(data);
+        } else if (topic === 'aquasys/sensors/calibrate/response') {
+          console.log('📡 Resposta de calibração:', data);
+          // Processado via lastMessage no SensorCalibrationDialog
         }
       } catch (error) {
         console.error('Erro ao processar mensagem:', error);
