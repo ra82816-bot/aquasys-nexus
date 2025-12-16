@@ -654,7 +654,10 @@ void reconnectMQTT() {
 }
 
 void publishCalibrationResponse(const char* sensor, const char* point, bool success, float value) {
-  if (!mqttClient.connected()) return;
+  if (!mqttClient.connected()) {
+    Serial.println("[CAL] ✗ MQTT desconectado - resposta não enviada!");
+    return;
+  }
   
   StaticJsonDocument<256> doc;
   doc["sensor"] = sensor;
@@ -665,11 +668,20 @@ void publishCalibrationResponse(const char* sensor, const char* point, bool succ
   doc["uuid"] = device_uuid;
   
   char buffer[256];
-  size_t n = serializeJson(doc, buffer);
+  serializeJson(doc, buffer);
   
-  // Publicar confirmação no tópico de resposta
-  mqttClient.publish("aquasys/sensors/calibrate/response", buffer, n);
-  Serial.printf("[CAL] Resposta publicada: %s\n", buffer);
+  Serial.printf("[CAL] Publicando resposta: %s\n", buffer);
+  Serial.println("[CAL] Tópico: aquasys/sensors/calibrate/response");
+  
+  // Publicar confirmação no tópico de resposta (usando char* simples)
+  bool published = mqttClient.publish("aquasys/sensors/calibrate/response", buffer);
+  
+  if (published) {
+    Serial.println("[CAL] ✓ Resposta enviada com sucesso!");
+  } else {
+    Serial.println("[CAL] ✗ FALHA ao enviar resposta!");
+    Serial.printf("[CAL] Estado MQTT: %d\n", mqttClient.state());
+  }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
