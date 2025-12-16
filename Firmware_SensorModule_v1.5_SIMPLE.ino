@@ -7,7 +7,7 @@
  * Sensores:
  * - pH (ADC1, pino 1) - Calibração dois pontos (pH 4.0 e pH 7.0)
  * - EC/TDS (ADC1, pino 2) - Interpolação linear com compensação de temperatura
- * - DHT22 (pino 15) - Temperatura e umidade do ar
+ * - DHT22 (pino 17) - Temperatura e umidade do ar
  * - DS18B20 (pino 4) - Temperatura da água
  * 
  * Comunicação:
@@ -46,21 +46,23 @@
 // Pinos dos sensores
 #define PH_SENSOR_PIN     1   // ADC1 Canal 0 (GPIO 1 no ESP32-S3)
 #define EC_SENSOR_PIN     2   // ADC1 Canal 1 (GPIO 2 no ESP32-S3)
-#define DHT_PIN           15
+#define DHT_PIN           17  // GPIO 17 - evita conflito com botões
 #define DHT_TYPE          DHT22
 #define ONE_WIRE_BUS      4
 
-// Configuração OLED
+// Configuração OLED (I2C)
 #define OLED_WIDTH        128
 #define OLED_HEIGHT       64
 #define OLED_RESET        -1
 #define OLED_ADDRESS      0x3C
+#define I2C_SDA           8   // GPIO 8 para SDA
+#define I2C_SCL           9   // GPIO 9 para SCL
 
-// Botões (opcional - para navegação manual)
-#define BUTTON_UP         32
-#define BUTTON_DOWN       33
-#define BUTTON_SELECT     25
-#define BUTTON_BACK       26
+// Botões - GPIO seguros para ESP32-S3
+#define BUTTON_UP         38
+#define BUTTON_DOWN       39
+#define BUTTON_SELECT     40
+#define BUTTON_BACK       41
 
 // =============================================================================
 // CONFIGURAÇÃO MQTT
@@ -183,8 +185,8 @@ void setup() {
   Serial.println("HydroSmart Sensor Module v1.5 SIMPLE");
   Serial.println("========================================");
 
-  // Inicializar OLED
-  Wire.begin();
+  // Inicializar OLED com pinos I2C customizados
+  Wire.begin(I2C_SDA, I2C_SCL);
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
     Serial.println("[ERRO] Falha ao inicializar OLED!");
   } else {
