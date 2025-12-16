@@ -1,6 +1,6 @@
 /*****************************************************************************************
  * AquaSys / HydroSmart - Módulo Atuador ESP32
- * Versão: v3.4 FINAL (11/10/2025)
+ * Versão: v3.4.1 (Sem Watchdog Manual)
  * 
  * 🔧 Melhorias desta versão:
  * - ✅ Formato simplificado de comandos MQTT totalmente implementado:
@@ -11,13 +11,13 @@
  * - ✅ NTP inicializado e funcionando para modo LED
  * - ✅ Processamento de pulsos não-bloqueantes
  * - ✅ Validação de dados de sensores
- * - ✅ Watchdog de 20 segundos
  * - ✅ Reconexão exponencial com buffer offline
  * - ✅ Persistência NVS de estados e configurações
  * - ✅ Modo ciclo automático
  * - ✅ Controle de pH (up/down) por pulsos
  * - ✅ Controle de temperatura e umidade
  * - ✅ Controle de EC por pulsos
+ * - ❌ Watchdog removido (deixado a cargo do ESP32)
  *
  * 100% compatível com o app React atualizado
  *****************************************************************************************/
@@ -27,8 +27,6 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
-#include <esp_task_wdt.h>
-#include <esp_system.h>
 #include <time.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
@@ -43,11 +41,11 @@ const int relayPins[8] = {23, 5, 4, 13, 22, 21, 14, 12};
 #define MQTT_PORT 8883
 #define MQTT_USERNAME "esp32-user"
 #define MQTT_PASSWORD "HydroSmart123"
-#define MQTT_CLIENT_ID "ESP32_Actuator_v3_4_FINAL"
+#define MQTT_CLIENT_ID "ESP32_Actuator_v3_4_1"
 
 #define TOPIC_SENSORS_SUB "aquasys/sensors/all"
 #define TOPIC_RELAY_STATUS "aquasys/relay/status"
-#define TOPIC_RELAY_COMMANDS "aquasys/relay/command"  // Sem 's'
+#define TOPIC_RELAY_COMMANDS "aquasys/relay/command"
 #define TOPIC_LOGS "aquasys/logs"
 
 // ----------------------------- TIMING -----------------------------------------------
@@ -89,8 +87,9 @@ struct SensorData {
   float humidity;
   float waterTemp;
   bool valid;
+  unsigned long lastUpdateMs;
 };
-SensorData currentSensorData = {7.0, 800.0, 25.0, 60.0, 23.0, false};
+SensorData currentSensorData = {7.0, 800.0, 25.0, 60.0, 23.0, false, 0};
 
 // Relay config
 enum RelayMode {
@@ -141,11 +140,10 @@ unsigned long lastLogClearMs = 0;
 bool ntpInitialized = false;
 
 // ----------------------------- UTILITIES ---------------------------------------------
-static inline unsigned long nowMs() { return millis(); }
-
 void logMessage(const char* level, const char* msg) {
   char buf[256];
   snprintf(buf, sizeof(buf), "[%s] %lu %s", level, millis(), msg);
+  Serial.println(buf);
   logBuffer[logIndex++ % LOG_CAPACITY] = String(buf);
   
   if (mqttClient.connected()) {
@@ -175,7 +173,7 @@ void loadConfig() {
     String p = "r"+String(i)+"_";
     configs[i].mode = (RelayMode)preferences.getInt((p+"mode").c_str(), MODE_UNUSED);
     configs[i].led_on_hour = preferences.getInt((p+"led_on_h").c_str(), 6);
-    configs[i].led_off_hour = preferences.getInt((p+"led_off_h").c_str(), 0);
+    configs[i].led_off_hour = preferences.getInt((p+"led_off_h").c_str(), 18);
     configs[i].cycle_on_min = preferences.getInt((p+"cycle_on_m").c_str(), 15);
     configs[i].cycle_off_min = preferences.getInt((p+"cycle_off_m").c_str(), 15);
     configs[i].ph_pulse_sec = preferences.getInt((p+"ph_pulse_s").c_str(), 5);
@@ -231,13 +229,20 @@ void saveRelayConfig(int index) {
   preferences.putFloat((p+"ec_t").c_str(), configs[index].ec_threshold);
   preferences.putInt((p+"ec_pulse_s").c_str(), configs[index].ec_pulse_sec);
   
+  // Reset manual override para permitir modo automático
+  manual_override[index] = false;
+  preferences.putBool((p+"manual").c_str(), false);
+  
+  // Reset ciclo timer
+  cycle_last_toggle_ms[index] = 0;
+  
   preferences.end();
-  logMessage("INFO", ("Config saved for relay " + String(index)).c_str());
+  logMessage("CFG", ("Config saved for relay " + String(index+1) + ", mode=" + String(configs[index].mode)).c_str());
 }
 
 // ----------------------------- WIFI & AP ---------------------------------------------
 void handleRoot() {
-  String html = "<h2>Configurar WiFi</h2><form action='/save' method='POST'>SSID:<input name='ssid'><br>Senha:<input name='password' type='password'><br><input type='submit'></form>";
+  String html = "<h2>HydroSmart - Configurar WiFi</h2><form action='/save' method='POST'>SSID:<input name='ssid'><br>Senha:<input name='password' type='password'><br><input type='submit' value='Salvar'></form>";
   server.send(200, "text/html", html);
 }
 
@@ -248,37 +253,44 @@ void handleSave() {
   preferences.putString("ssid", ssid_sta);
   preferences.putString("password", password_sta);
   preferences.end();
-  server.send(200, "text/html", "<h2>Salvo! Reinicie o ESP.</h2>");
+  server.send(200, "text/html", "<h2>Salvo! Reiniciando...</h2>");
+  delay(1000);
   ESP.restart();
 }
 
 void startAPMode() {
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("ESP32_Relay_Config");
+  WiFi.softAP("HydroSmart_Config");
   server.on("/", handleRoot);
   server.on("/save", HTTP_POST, handleSave);
   server.begin();
   initialSetupMode = true;
-  logMessage("INFO", "AP Mode iniciado");
+  logMessage("INFO", "AP Mode iniciado - Conecte em HydroSmart_Config");
 }
 
 void setupWifi() {
   if (ssid_sta.length() > 0) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid_sta.c_str(), password_sta.c_str());
+    logMessage("WIFI", "Conectando...");
+    
     int tries = 0;
     while (WiFi.status() != WL_CONNECTED && tries < 40) {
       delay(500);
       tries++;
     }
+    
     if (WiFi.status() == WL_CONNECTED) {
       wifiConfigured = true;
       server.stop();
-      logMessage("INFO", "WiFi conectado");
+      char ipBuf[32];
+      snprintf(ipBuf, sizeof(ipBuf), "WiFi conectado: %s", WiFi.localIP().toString().c_str());
+      logMessage("WIFI", ipBuf);
       
       // Inicializar NTP
       if (!ntpInitialized) {
         timeClient.begin();
+        logMessage("NTP", "Sincronizando...");
         int ntpRetries = 0;
         while (!timeClient.update() && ntpRetries < 5) {
           timeClient.forceUpdate();
@@ -287,10 +299,15 @@ void setupWifi() {
         }
         if (timeClient.isTimeSet()) {
           ntpInitialized = true;
-          logMessage("INFO", "NTP sincronizado");
+          char timeBuf[32];
+          snprintf(timeBuf, sizeof(timeBuf), "NTP OK: %s", timeClient.getFormattedTime().c_str());
+          logMessage("NTP", timeBuf);
+        } else {
+          logMessage("WARN", "NTP falhou - modos baseados em horário não funcionarão");
         }
       }
     } else {
+      logMessage("WIFI", "Falha na conexão - iniciando AP Mode");
       startAPMode();
     }
   } else {
@@ -323,33 +340,43 @@ void flushOutbox() {
 }
 
 void publishRelayStatus(bool retained = true) {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   for (int i=0; i<8; i++) {
     doc["relay"+String(i+1)] = relayStates[i];
   }
+  doc["uptime"] = millis();
+  doc["ntp_ok"] = ntpInitialized;
+  
   String out;
   serializeJson(doc, out);
   
   if (!mqttClient.publish(TOPIC_RELAY_STATUS, out.c_str(), retained)) {
     enqueueOutgoing(TOPIC_RELAY_STATUS, out);
   }
+  logMessage("MQTT", "Status publicado");
 }
 
-void updateRelayNonBlocking(int relayIndex, bool state) {
+void updateRelayNonBlocking(int relayIndex, bool state, const char* reason = "Auto") {
   if (relayIndex < 0 || relayIndex >= 8) return;
   
   unsigned long now = millis();
   if (now - lastStateChangeMs[relayIndex] < STATE_DEBOUNCE_MS) return;
   
-  lastStateChangeMs[relayIndex] = now;
-  relayStates[relayIndex] = state;
-  digitalWrite(relayPins[relayIndex], state ? LOW : HIGH);
-  
-  preferences.begin("actuator-cfg", false);
-  preferences.putBool(("relay_state_"+String(relayIndex)).c_str(), relayStates[relayIndex]);
-  preferences.end();
-  
-  publishRelayStatus(true);
+  if (relayStates[relayIndex] != state) {
+    lastStateChangeMs[relayIndex] = now;
+    relayStates[relayIndex] = state;
+    digitalWrite(relayPins[relayIndex], state ? LOW : HIGH);
+    
+    preferences.begin("actuator-cfg", false);
+    preferences.putBool(("relay_state_"+String(relayIndex)).c_str(), relayStates[relayIndex]);
+    preferences.end();
+    
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Relay %d -> %s (%s)", relayIndex+1, state ? "ON" : "OFF", reason);
+    logMessage("RELAY", buf);
+    
+    publishRelayStatus(true);
+  }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -376,12 +403,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       currentSensorData.humidity = humidity;
       currentSensorData.waterTemp = waterTemp;
       currentSensorData.valid = true;
+      currentSensorData.lastUpdateMs = millis();
     } else {
-      logMessage("WARN", "Invalid sensor data received");
+      logMessage("WARN", "Dados de sensor inválidos recebidos");
     }
   }
   else if (strcmp(topic, TOPIC_RELAY_COMMANDS) == 0) {
-    // FORMATO SIMPLIFICADO v3.4
+    // ============ FORMATO SIMPLIFICADO v3.4 ============
     
     // Comando manual: { "relay": 1, "command": true }
     if (doc.containsKey("relay") && doc.containsKey("command")) {
@@ -391,9 +419,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       if (r >= 1 && r <= 8) {
         int idx = r - 1;
         manual_override[idx] = true;
-        updateRelayNonBlocking(idx, cmd);
+        updateRelayNonBlocking(idx, cmd, "Manual MQTT");
         saveConfig();
-        logMessage("INFO", ("Manual command: relay " + String(r) + " = " + String(cmd)).c_str());
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Comando manual: relay %d = %s", r, cmd ? "ON" : "OFF");
+        logMessage("CMD", buf);
       }
     }
     // Modo automático: { "relay": 1, "auto": true }
@@ -405,7 +435,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         int idx = r - 1;
         manual_override[idx] = false;
         saveConfig();
-        logMessage("INFO", ("Auto mode enabled: relay " + String(r)).c_str());
+        char buf[32];
+        snprintf(buf, sizeof(buf), "Relay %d em modo AUTO", r);
+        logMessage("CMD", buf);
       }
     }
     // Atualizar configuração: { "relay": 1, "config": {...} }
@@ -416,23 +448,24 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         int idx = r - 1;
         JsonObject cfg = doc["config"].as<JsonObject>();
         
-        configs[idx].mode = (RelayMode)(cfg["mode"] | (int)configs[idx].mode);
-        configs[idx].led_on_hour = cfg["led_on_hour"] | configs[idx].led_on_hour;
-        configs[idx].led_off_hour = cfg["led_off_hour"] | configs[idx].led_off_hour;
-        configs[idx].cycle_on_min = cfg["cycle_on_min"] | configs[idx].cycle_on_min;
-        configs[idx].cycle_off_min = cfg["cycle_off_min"] | configs[idx].cycle_off_min;
-        configs[idx].ph_pulse_sec = cfg["ph_pulse_sec"] | configs[idx].ph_pulse_sec;
-        configs[idx].ph_threshold_low = cfg["ph_threshold_low"] | configs[idx].ph_threshold_low;
-        configs[idx].ph_threshold_high = cfg["ph_threshold_high"] | configs[idx].ph_threshold_high;
-        configs[idx].temp_threshold_on = cfg["temp_threshold_on"] | configs[idx].temp_threshold_on;
-        configs[idx].temp_threshold_off = cfg["temp_threshold_off"] | configs[idx].temp_threshold_off;
-        configs[idx].humidity_threshold_on = cfg["humidity_threshold_on"] | configs[idx].humidity_threshold_on;
-        configs[idx].humidity_threshold_off = cfg["humidity_threshold_off"] | configs[idx].humidity_threshold_off;
-        configs[idx].ec_threshold = cfg["ec_threshold"] | configs[idx].ec_threshold;
-        configs[idx].ec_pulse_sec = cfg["ec_pulse_sec"] | configs[idx].ec_pulse_sec;
+        // Atualizar todos os campos de configuração
+        if (cfg.containsKey("mode")) configs[idx].mode = (RelayMode)cfg["mode"].as<int>();
+        if (cfg.containsKey("led_on_hour")) configs[idx].led_on_hour = cfg["led_on_hour"];
+        if (cfg.containsKey("led_off_hour")) configs[idx].led_off_hour = cfg["led_off_hour"];
+        if (cfg.containsKey("cycle_on_min")) configs[idx].cycle_on_min = cfg["cycle_on_min"];
+        if (cfg.containsKey("cycle_off_min")) configs[idx].cycle_off_min = cfg["cycle_off_min"];
+        if (cfg.containsKey("ph_pulse_sec")) configs[idx].ph_pulse_sec = cfg["ph_pulse_sec"];
+        if (cfg.containsKey("ph_threshold_low")) configs[idx].ph_threshold_low = cfg["ph_threshold_low"];
+        if (cfg.containsKey("ph_threshold_high")) configs[idx].ph_threshold_high = cfg["ph_threshold_high"];
+        if (cfg.containsKey("temp_threshold_on")) configs[idx].temp_threshold_on = cfg["temp_threshold_on"];
+        if (cfg.containsKey("temp_threshold_off")) configs[idx].temp_threshold_off = cfg["temp_threshold_off"];
+        if (cfg.containsKey("humidity_threshold_on")) configs[idx].humidity_threshold_on = cfg["humidity_threshold_on"];
+        if (cfg.containsKey("humidity_threshold_off")) configs[idx].humidity_threshold_off = cfg["humidity_threshold_off"];
+        if (cfg.containsKey("ec_threshold")) configs[idx].ec_threshold = cfg["ec_threshold"];
+        if (cfg.containsKey("ec_pulse_sec")) configs[idx].ec_pulse_sec = cfg["ec_pulse_sec"];
         
         saveRelayConfig(idx);
-        logMessage("INFO", ("Config updated: relay " + String(r)).c_str());
+        publishRelayStatus(true);
       }
     }
   }
@@ -444,6 +477,7 @@ void mqttReconnect() {
   if (now - lastMqttReconnectAttempt < mqttReconnectDelay) return;
   
   lastMqttReconnectAttempt = now;
+  logMessage("MQTT", "Tentando conectar...");
   
   if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
     mqttReconnectDelay = MQTT_RECONNECT_MIN;
@@ -451,16 +485,17 @@ void mqttReconnect() {
     mqttClient.subscribe(TOPIC_RELAY_COMMANDS);
     flushOutbox();
     publishRelayStatus(true);
-    logMessage("INFO", "MQTT connected");
+    logMessage("MQTT", "Conectado!");
   } else {
     mqttReconnectDelay = min(mqttReconnectDelay * 2, MQTT_RECONNECT_MAX);
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Falhou (rc=%d), retry em %lus", mqttClient.state(), mqttReconnectDelay/1000);
+    logMessage("MQTT", buf);
   }
 }
 
 // ----------------------------- AUTOMATIC LOGIC ----------------------------------------
 void updateAutomaticRelays() {
-  if (!currentSensorData.valid) return;
-  
   unsigned long now = millis();
   
   for (int i=0; i<8; i++) {
@@ -468,73 +503,99 @@ void updateAutomaticRelays() {
     
     switch (configs[i].mode) {
       case MODE_LED: {
+        // LED funciona independente de sensores, só precisa de NTP
         if (ntpInitialized) {
           int h = timeClient.getHours();
-          bool should_on = (h >= configs[i].led_on_hour && h < configs[i].led_off_hour);
+          int on = configs[i].led_on_hour;
+          int off = configs[i].led_off_hour;
+          bool should_on = false;
+          
+          // Suporte para overnight schedules (ex: 18-06)
+          if (on < off) {
+            should_on = (h >= on && h < off);
+          } else if (on > off) {
+            should_on = (h >= on || h < off);
+          }
+          // Se on == off, mantém desligado
+          
           if (relayStates[i] != should_on) {
-            updateRelayNonBlocking(i, should_on);
+            char reason[32];
+            snprintf(reason, sizeof(reason), "Timer %02d-%02d", on, off);
+            updateRelayNonBlocking(i, should_on, reason);
           }
         }
         break;
       }
       
       case MODE_CYCLE: {
+        // Ciclo funciona independente de sensores
+        unsigned long onMs = (unsigned long)configs[i].cycle_on_min * 60000UL;
+        unsigned long offMs = (unsigned long)configs[i].cycle_off_min * 60000UL;
+        
+        if (cycle_last_toggle_ms[i] == 0) cycle_last_toggle_ms[i] = now;
+        
         unsigned long elapsed = now - cycle_last_toggle_ms[i];
-        unsigned long threshold = relayStates[i] ? 
-          (configs[i].cycle_on_min * 60000UL) : 
-          (configs[i].cycle_off_min * 60000UL);
+        unsigned long threshold = relayStates[i] ? onMs : offMs;
         
         if (elapsed >= threshold) {
-          updateRelayNonBlocking(i, !relayStates[i]);
+          bool newState = !relayStates[i];
+          char reason[32];
+          snprintf(reason, sizeof(reason), "Cycle %s", newState ? "ON" : "OFF");
+          updateRelayNonBlocking(i, newState, reason);
           cycle_last_toggle_ms[i] = now;
         }
         break;
       }
       
+      // Modos dependentes de sensores - só executam se sensores válidos
       case MODE_PH_UP: {
-        if (currentSensorData.ph < configs[i].ph_threshold_low && !pulses[i].active) {
-          pulses[i] = {true, now, configs[i].ph_pulse_sec * 1000UL, i};
-          updateRelayNonBlocking(i, true);
+        if (currentSensorData.valid && currentSensorData.ph < configs[i].ph_threshold_low && !pulses[i].active) {
+          pulses[i] = {true, now, (unsigned long)configs[i].ph_pulse_sec * 1000UL, i};
+          updateRelayNonBlocking(i, true, "pH Up Pulse");
         }
         break;
       }
       
       case MODE_PH_DOWN: {
-        if (currentSensorData.ph > configs[i].ph_threshold_high && !pulses[i].active) {
-          pulses[i] = {true, now, configs[i].ph_pulse_sec * 1000UL, i};
-          updateRelayNonBlocking(i, true);
+        if (currentSensorData.valid && currentSensorData.ph > configs[i].ph_threshold_high && !pulses[i].active) {
+          pulses[i] = {true, now, (unsigned long)configs[i].ph_pulse_sec * 1000UL, i};
+          updateRelayNonBlocking(i, true, "pH Down Pulse");
         }
         break;
       }
       
       case MODE_TEMPERATURE: {
-        if (currentSensorData.airTemp > configs[i].temp_threshold_on) {
-          if (!relayStates[i]) updateRelayNonBlocking(i, true);
-        } else if (currentSensorData.airTemp < configs[i].temp_threshold_off) {
-          if (relayStates[i]) updateRelayNonBlocking(i, false);
+        if (currentSensorData.valid) {
+          if (currentSensorData.airTemp > configs[i].temp_threshold_on) {
+            if (!relayStates[i]) updateRelayNonBlocking(i, true, "Temp High");
+          } else if (currentSensorData.airTemp < configs[i].temp_threshold_off) {
+            if (relayStates[i]) updateRelayNonBlocking(i, false, "Temp OK");
+          }
         }
         break;
       }
       
       case MODE_HUMIDITY: {
-        if (currentSensorData.humidity > configs[i].humidity_threshold_on) {
-          if (!relayStates[i]) updateRelayNonBlocking(i, true);
-        } else if (currentSensorData.humidity < configs[i].humidity_threshold_off) {
-          if (relayStates[i]) updateRelayNonBlocking(i, false);
+        if (currentSensorData.valid) {
+          if (currentSensorData.humidity > configs[i].humidity_threshold_on) {
+            if (!relayStates[i]) updateRelayNonBlocking(i, true, "Humidity High");
+          } else if (currentSensorData.humidity < configs[i].humidity_threshold_off) {
+            if (relayStates[i]) updateRelayNonBlocking(i, false, "Humidity OK");
+          }
         }
         break;
       }
       
       case MODE_EC: {
-        if (currentSensorData.ec < configs[i].ec_threshold && !pulses[i].active) {
-          pulses[i] = {true, now, configs[i].ec_pulse_sec * 1000UL, i};
-          updateRelayNonBlocking(i, true);
+        if (currentSensorData.valid && currentSensorData.ec < configs[i].ec_threshold && !pulses[i].active) {
+          pulses[i] = {true, now, (unsigned long)configs[i].ec_pulse_sec * 1000UL, i};
+          updateRelayNonBlocking(i, true, "EC Pulse");
         }
         break;
       }
       
       case MODE_CO2: {
-        // Implementar lógica de CO2 se necessário
+        // Placeholder para lógica de CO2
         break;
       }
       
@@ -546,24 +607,21 @@ void updateAutomaticRelays() {
   // Processar pulsos ativos
   for (int i=0; i<8; i++) {
     if (pulses[i].active && (now - pulses[i].startMs >= pulses[i].durationMs)) {
-      updateRelayNonBlocking(i, false);
+      updateRelayNonBlocking(i, false, "Pulse End");
       pulses[i].active = false;
     }
   }
 }
 
-// ----------------------------- WATCHDOG ----------------------------------------------
-void registerWatchdogs() {
-  esp_task_wdt_init(20, true); // 20 segundos
-  esp_task_wdt_add(NULL);
-  logMessage("INFO", "Task WDT inicializado (20s)");
-}
-
 // ----------------------------- SETUP / LOOP ------------------------------------------
 void setup() {
   Serial.begin(115200);
+  Serial.println("\n========================================");
+  Serial.println("  HydroSmart Actuator v3.4.1");
+  Serial.println("  (Sem Watchdog Manual)");
+  Serial.println("========================================\n");
   
-  // Configurar relés
+  // Configurar relés (OFF inicial)
   for (int i=0; i<8; i++) {
     pinMode(relayPins[i], OUTPUT);
     digitalWrite(relayPins[i], HIGH); // Relé desligado (lógica invertida)
@@ -574,6 +632,7 @@ void setup() {
   
   // Configurar WiFi
   if (digitalRead(SETUP_BUTTON_PIN) == LOW) {
+    logMessage("INFO", "Botão de setup pressionado - iniciando AP Mode");
     startAPMode();
   } else {
     setupWifi();
@@ -583,29 +642,29 @@ void setup() {
   espClient.setInsecure();
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
-  
-  // Inicializar Watchdog
-  registerWatchdogs();
+  mqttClient.setBufferSize(2048);
   
   // Restaurar estados dos relés
   for (int i=0; i<8; i++) {
     digitalWrite(relayPins[i], relayStates[i] ? LOW : HIGH);
+    pulses[i] = {false, 0, 0, i};
   }
   
   publishRelayStatus(true);
-  logMessage("INFO", "Sistema inicializado - v3.4 FINAL");
+  logMessage("INFO", "Sistema inicializado - v3.4.1");
 }
 
 void loop() {
-  esp_task_wdt_reset();
-  
+  // Modo AP - só servidor web
   if (initialSetupMode) {
     server.handleClient();
+    delay(10);
     return;
   }
   
   // Manter WiFi conectado
   if (WiFi.status() != WL_CONNECTED) {
+    logMessage("WIFI", "Conexão perdida - reconectando...");
     setupWifi();
     delay(200);
     return;
@@ -634,6 +693,15 @@ void loop() {
   // Heartbeat periódico
   if (now - lastHeartbeatMs > HEARTBEAT_INTERVAL) {
     publishRelayStatus(true);
+    
+    // Log de sistema
+    char sysBuf[128];
+    snprintf(sysBuf, sizeof(sysBuf), "Uptime: %lus | Heap: %d | NTP: %s | MQTT: %s", 
+             now/1000, ESP.getFreeHeap(), 
+             ntpInitialized ? "OK" : "NO",
+             mqttClient.connected() ? "OK" : "NO");
+    logMessage("SYS", sysBuf);
+    
     lastHeartbeatMs = now;
   }
   
@@ -643,8 +711,8 @@ void loop() {
     lastLogClearMs = now;
   }
   
-  // Flush buffer MQTT
+  // Flush buffer MQTT offline
   flushOutbox();
   
-  delay(10);
+  delay(10); // Yield para sistema
 }
