@@ -5,7 +5,7 @@
  * ESP32-S3 DevKit | Firmware simplificado sem QR Code
  * 
  * Sensores:
- * - pH (ADC1, pino 1) - Calibração dois pontos (pH 4.0 e pH 7.0)
+ * - pH (ADC1, pino 1) - Calibração dois pontos (pH 4.0 e pH 6.86)
  * - EC/TDS (ADC1, pino 2) - Interpolação linear com compensação de temperatura
  * - DHT22 (pino 17) - Temperatura e umidade do ar
  * - DS18B20 (pino 4) - Temperatura da água
@@ -92,7 +92,7 @@ PubSubClient mqttClient(espClient);
 // VARIÁVEIS DE CALIBRAÇÃO pH (Dois pontos - padrão industrial)
 // =============================================================================
 
-float cal_ph7_voltage = 2.52;   // Tensão medida em solução pH 7.0
+float cal_ph686_voltage = 2.52;  // Tensão medida em solução pH 6.86
 float cal_ph4_voltage = 3.29;   // Tensão medida em solução pH 4.0
 float ph_slope, ph_intercept;   // Coeficientes calculados
 
@@ -342,17 +342,17 @@ void generateDeviceIdentity() {
 }
 
 // =============================================================================
-// CALIBRAÇÃO pH - DOIS PONTOS (pH 4.0 e pH 7.0)
+// CALIBRAÇÃO pH - DOIS PONTOS (pH 4.0 e pH 6.86)
 // =============================================================================
 
 void calculatePHCoefficients() {
   float pH_low = 4.0;
-  float pH_neutral = 7.0;
+  float pH_neutral = 6.86;  // Solução padrão disponível (não 7.0)
   
   // Calcular slope e intercept para regressão linear
   // pH = slope * voltage + intercept
-  ph_slope = (pH_neutral - pH_low) / (cal_ph7_voltage - cal_ph4_voltage);
-  ph_intercept = pH_neutral - ph_slope * cal_ph7_voltage;
+  ph_slope = (pH_neutral - pH_low) / (cal_ph686_voltage - cal_ph4_voltage);
+  ph_intercept = pH_neutral - ph_slope * cal_ph686_voltage;
   
   Serial.println("[CAL] Coeficientes pH calculados:");
   Serial.print("  Slope: "); Serial.println(ph_slope, 4);
@@ -370,7 +370,8 @@ float voltageToPH(float voltage) {
 }
 
 void loadCalibration() {
-  cal_ph7_voltage = preferences.getFloat("cal_ph7_v", 2.52);
+  // Mantém chave NVS "cal_ph7_v" para compatibilidade com calibrações antigas
+  cal_ph686_voltage = preferences.getFloat("cal_ph7_v", 2.52);
   cal_ph4_voltage = preferences.getFloat("cal_ph4_v", 3.29);
   calibration_low_raw = preferences.getFloat("ec_low_raw", 645.0);
   calibration_high_raw = preferences.getFloat("ec_high_raw", 2850.0);
@@ -378,12 +379,13 @@ void loadCalibration() {
   calibration_high_ec = preferences.getFloat("ec_high_ec", 4588.0);
   
   Serial.println("[CAL] Calibração carregada:");
-  Serial.print("  pH7 Voltage: "); Serial.println(cal_ph7_voltage, 3);
+  Serial.print("  pH6.86 Voltage: "); Serial.println(cal_ph686_voltage, 3);
   Serial.print("  pH4 Voltage: "); Serial.println(cal_ph4_voltage, 3);
 }
 
 void saveCalibration() {
-  preferences.putFloat("cal_ph7_v", cal_ph7_voltage);
+  // Mantém chave NVS "cal_ph7_v" para compatibilidade
+  preferences.putFloat("cal_ph7_v", cal_ph686_voltage);
   preferences.putFloat("cal_ph4_v", cal_ph4_voltage);
   preferences.putFloat("ec_low_raw", calibration_low_raw);
   preferences.putFloat("ec_high_raw", calibration_high_raw);
@@ -717,11 +719,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       float currentVoltage = readAverageADC(PH_SENSOR_PIN, 20) * 3.3 / 4095.0;
       bool calibrated = false;
       
-      if (point == "7.00" || point == "7.0" || point == "7") {
-        cal_ph7_voltage = currentVoltage;
-        Serial.printf("[CAL] ✓ pH 7.0 calibrado: %.4fV\n", cal_ph7_voltage);
+      if (point == "6.86" || point == "6.8" || point == "7.0" || point == "7") {
+        cal_ph686_voltage = currentVoltage;
+        Serial.printf("[CAL] ✓ pH 6.86 calibrado: %.4fV\n", cal_ph686_voltage);
         calibrated = true;
-      } 
+      }
       else if (point == "4.01" || point == "4.0" || point == "4") {
         cal_ph4_voltage = currentVoltage;
         Serial.printf("[CAL] ✓ pH 4.0 calibrado: %.4fV\n", cal_ph4_voltage);
