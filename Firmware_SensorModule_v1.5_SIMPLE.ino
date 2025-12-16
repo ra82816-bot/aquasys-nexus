@@ -653,6 +653,25 @@ void reconnectMQTT() {
   }
 }
 
+void publishCalibrationResponse(const char* sensor, const char* point, bool success, float value) {
+  if (!mqttClient.connected()) return;
+  
+  StaticJsonDocument<256> doc;
+  doc["sensor"] = sensor;
+  doc["point"] = point;
+  doc["success"] = success;
+  doc["value"] = value;
+  doc["timestamp"] = millis();
+  doc["uuid"] = device_uuid;
+  
+  char buffer[256];
+  size_t n = serializeJson(doc, buffer);
+  
+  // Publicar confirmação no tópico de resposta
+  mqttClient.publish("aquasys/sensors/calibrate/response", buffer, n);
+  Serial.printf("[CAL] Resposta publicada: %s\n", buffer);
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   String message = "";
   for (unsigned int i = 0; i < length; i++) {
@@ -667,42 +686,65 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     DeserializationError error = deserializeJson(doc, message);
     
     if (error) {
-      Serial.println("[MQTT] Erro ao parsear JSON");
+      Serial.println("[MQTT] Erro ao parsear JSON - calibração ignorada");
       return;
     }
     
     String sensor = doc["sensor"] | "";
     String action = doc["action"] | "";
     
+    Serial.printf("[CAL] Comando recebido: sensor=%s, action=%s\n", sensor.c_str(), action.c_str());
+    
     if (sensor == "ph" && action == "calibrate") {
       String point = doc["point"] | "";
+      Serial.printf("[CAL] Calibrando pH no ponto: %s\n", point.c_str());
       
-      // Ler tensão atual do sensor
-      float currentVoltage = readAverageADC(PH_SENSOR_PIN) * 3.3 / 4095.0;
+      // Ler tensão atual do sensor (média de 20 amostras para precisão)
+      float currentVoltage = readAverageADC(PH_SENSOR_PIN, 20) * 3.3 / 4095.0;
+      bool calibrated = false;
       
-      if (point == "7.00" || point == "7.0") {
+      if (point == "7.00" || point == "7.0" || point == "7") {
         cal_ph7_voltage = currentVoltage;
-        Serial.printf("[CAL] pH 7.0 calibrado: %.3fV\n", cal_ph7_voltage);
+        Serial.printf("[CAL] ✓ pH 7.0 calibrado: %.4fV\n", cal_ph7_voltage);
+        calibrated = true;
       } 
-      else if (point == "4.01" || point == "4.0") {
+      else if (point == "4.01" || point == "4.0" || point == "4") {
         cal_ph4_voltage = currentVoltage;
-        Serial.printf("[CAL] pH 4.0 calibrado: %.3fV\n", cal_ph4_voltage);
+        Serial.printf("[CAL] ✓ pH 4.0 calibrado: %.4fV\n", cal_ph4_voltage);
+        calibrated = true;
+      }
+      else {
+        Serial.printf("[CAL] ✗ Ponto pH não reconhecido: %s\n", point.c_str());
       }
       
-      // Recalcular coeficientes e salvar
-      calculatePHCoefficients();
-      saveCalibration();
+      if (calibrated) {
+        // Recalcular coeficientes e salvar
+        calculatePHCoefficients();
+        saveCalibration();
+        publishCalibrationResponse("ph", point.c_str(), true, currentVoltage);
+      } else {
+        publishCalibrationResponse("ph", point.c_str(), false, 0);
+      }
     }
     else if (sensor == "ec" && action == "calibrate") {
       float standardUs = doc["standard_us"] | 0.0;
+      Serial.printf("[CAL] Calibrando EC com padrão: %.0f uS/cm\n", standardUs);
+      
       if (standardUs > 0) {
-        float currentRaw = readAverageADC(EC_SENSOR_PIN);
+        float currentRaw = readAverageADC(EC_SENSOR_PIN, 20);
         // Atualizar ponto de calibração alto
         calibration_high_raw = currentRaw;
         calibration_high_ec = standardUs;
         saveCalibration();
-        Serial.printf("[CAL] EC calibrado: Raw=%.0f para %.0f uS/cm\n", currentRaw, standardUs);
+        Serial.printf("[CAL] ✓ EC calibrado: Raw=%.0f para %.0f uS/cm\n", currentRaw, standardUs);
+        publishCalibrationResponse("ec", String(standardUs).c_str(), true, currentRaw);
+      } else {
+        Serial.println("[CAL] ✗ Valor EC inválido");
+        publishCalibrationResponse("ec", "0", false, 0);
       }
+    }
+    else {
+      Serial.printf("[CAL] Sensor ou ação desconhecidos: %s / %s\n", sensor.c_str(), action.c_str());
     }
   }
 }

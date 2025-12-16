@@ -9,5 +9,6 @@ export const MQTT_CONFIG = {
     relayStatus: 'aquasys/relay/status',
     relayCommand: 'aquasys/relay/command',
     sensorCalibrate: 'aquasys/sensors/calibrate',
+    sensorCalibrateResponse: 'aquasys/sensors/calibrate/response',
   },
 };
