@@ -32,13 +32,49 @@ serve(async (req) => {
         );
       }
 
+      // Se device_uuid presente, atualizar last_seen_at do dispositivo
+      if (data.device_uuid) {
+        console.log('Device UUID recebido:', data.device_uuid);
+        
+        // Verificar se dispositivo existe
+        const { data: existingDevice } = await supabase
+          .from('devices')
+          .select('id')
+          .eq('device_uuid', data.device_uuid)
+          .maybeSingle();
+        
+        if (existingDevice) {
+          // Atualizar last_seen_at e firmware_version se disponível
+          const updateData: Record<string, unknown> = { 
+            last_seen_at: new Date().toISOString() 
+          };
+          
+          if (data.firmware_version) {
+            updateData.firmware_version = data.firmware_version;
+          }
+          
+          const { error: updateError } = await supabase
+            .from('devices')
+            .update(updateData)
+            .eq('device_uuid', data.device_uuid);
+          
+          if (updateError) {
+            console.error('Erro ao atualizar last_seen_at:', updateError);
+          } else {
+            console.log('Device last_seen_at atualizado:', data.device_uuid);
+          }
+        } else {
+          console.log('Dispositivo não registrado, ignorando atualização de status:', data.device_uuid);
+        }
+      }
+
       // Buscar última leitura para preencher valores ausentes
       const { data: lastReading } = await supabase
         .from('readings')
         .select('*')
         .order('timestamp', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       // Usar valores da última leitura como fallback para campos nulos
       const sensorReading = {
@@ -71,7 +107,7 @@ serve(async (req) => {
       
       await supabase.from('event_logs').insert({
         type: 'reading_received',
-        message: `Leitura processada: pH ${data.ph}, EC ${data.ec}`
+        message: `Leitura processada: pH ${data.ph}, EC ${data.ec}${data.device_uuid ? ` (device: ${data.device_uuid.slice(0,8)}...)` : ''}`
       });
 
       return new Response(
